@@ -11,7 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # util 모듈에서 필요한 함수들을 가져옵니다.
-from util import draw_bodypose
+
 # 현재 파일의 위치를 기준으로 상대 경로를 설정합니다.
 current_directory = Path(__file__).resolve().parent
 util_path = current_directory.parent/'preprocess'/'openpose'/'annotator'/'openpose'
@@ -24,6 +24,7 @@ sys.path.append(str(pose_utils_path))
 
 from run_parsing import Parsing
 from getmask import get_mask_location
+from util import draw_bodypose
 from pose_utils import cords_to_map, draw_pose_from_cords, load_pose_cords_from_strings
 
 class FashionDataset(Dataset):

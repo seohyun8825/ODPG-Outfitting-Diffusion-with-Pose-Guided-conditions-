@@ -16,10 +16,9 @@ import torchvision.transforms as transforms
 from PIL import Image
 from torch.utils.data import Dataset
 sys.path.append('C:\\Users\\user\\Desktop\\CFLD\\CFLD')
-from pose_utils import cords_to_map, draw_pose_from_cords, load_pose_cords_from_strings
+from pose_utils import transform_keypoints, draw_pose_from_cords, load_pose_cords_from_strings
 logger = logging.getLogger()
 import cv2
-
 
 class PisTrainDeepFashion(Dataset):
     def __init__(self, root_dir, gt_img_size, pose_img_size, cond_img_size, min_scale,
@@ -50,25 +49,25 @@ class PisTrainDeepFashion(Dataset):
         self.annotation_file = self.annotation_file.set_index('name')
 
         self.transform_gt = transforms.Compose([
-            transforms.Resize(gt_img_size, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+            transforms.Resize(gt_img_size, interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
         self.transform_cond = transforms.Compose([
-            transforms.Resize(cond_img_size, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+            transforms.Resize(cond_img_size, interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
 
         aspect_ratio = cond_img_size[1] / cond_img_size[0]
         self.transform = transforms.Compose([
-            transforms.RandomResizedCrop(cond_img_size, scale=(min_scale, 1.), ratio=(aspect_ratio*3./4., aspect_ratio*4./3.),
-                                         interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+            transforms.RandomResizedCrop(cond_img_size, scale=(min_scale, 1.), ratio=(aspect_ratio * 3./4., aspect_ratio * 4./3.),
+                                         interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ]) if min_scale < 1.0 else transforms.Compose([
-            transforms.Resize(cond_img_size, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+            transforms.Resize(cond_img_size, interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
@@ -84,8 +83,6 @@ class PisTrainDeepFashion(Dataset):
             ))
         return data
 
-
-
     def get_pred_ratio(self):
         pred_ratio = []
         for prm, prv in zip(self.pred_ratio, self.pred_ratio_var):
@@ -100,31 +97,29 @@ class PisTrainDeepFashion(Dataset):
 
     def __getitem__(self, index):
         img_path_from, img_path_to, img_path_garment = self.img_items[index]
-        # Load from and to images
         with open(img_path_from, 'rb') as f:
             img_from = Image.open(f).convert('RGB')
         with open(img_path_to, 'rb') as f:
             img_to = Image.open(f).convert('RGB')
-        # Load garment image
         with open(img_path_garment, 'rb') as f:
             img_garment = Image.open(f).convert('RGB')
 
+        original_size_from = img_from.size
+        original_size_to = img_to.size
+
         img_src = self.transform_gt(img_from)
         img_tgt = self.transform_gt(img_to)
-        img_cond = self.transform(img_from)  # 이미지 변환 적용
-        img_garment = self.transform_gt(img_garment)  # Apply the same transform as target images
+        img_cond = self.transform(img_from)
+        img_garment = self.transform_gt(img_garment)
 
-        # build_pose_img에 이미지 변환을 전달
-        pose_img_src = self.build_pose_img(img_path_from, self.transform)
-        pose_img_tgt = self.build_pose_img(img_path_to, self.transform)
-        print(f"pose image shape : pose_img_src {pose_img_src.shape}")
+        pose_img_src = self.build_pose_img(img_path_from, original_size_from, self.transform_gt)
+        pose_img_tgt = self.build_pose_img(img_path_to, original_size_to, self.transform_gt)
+
         mask = None
         if len(self.pred_ratio) > 0:
             H, W = self.cond_img_size[0] // self.psz, self.cond_img_size[1] // self.psz
             high = self.get_pred_ratio() * H * W
 
-            # following BEiT (https://arxiv.org/abs/2106.08254), see at
-            # https://github.com/microsoft/unilm/blob/b94ec76c36f02fb2b0bf0dcb0b8554a2185173cd/beit/masking_generator.py#L55
             mask = np.zeros((H, W), dtype=bool)
             mask_count = 0
             while mask_count < high:
@@ -163,35 +158,28 @@ class PisTrainDeepFashion(Dataset):
             "img_cond": img_cond,
             "pose_img_src": pose_img_src,
             "pose_img_tgt": pose_img_tgt,
-            "img_garment": img_garment  # Include garment image
+            "img_garment": img_garment
         }
         return return_dict
-    def build_pose_img(self, img_path, transform):
+    def build_pose_img(self, img_path, original_size, transform):
         img = Image.open(img_path).convert('RGB')
-        original_size = img.size  # 원본 이미지의 크기를 저장 (256x256)
-        transformed_img = transform(img)  # 이미지에 변환 적용
-        transformed_size = transformed_img.shape  # 변환된 이미지의 크기를 올바르게 호출 (using .shape for tensors)
+        transformed_img = transform(img)
+        transformed_size = (transformed_img.shape[2], transformed_img.shape[1])  
 
         string = self.annotation_file.loc[os.path.basename(img_path)]
         keypoints = load_pose_cords_from_strings(string['keypoints_y'], string['keypoints_x'])
 
         if keypoints.size == 0:
             print("Warning: No valid keypoints for", img_path)
-            return torch.zeros(3, transformed_size[1], transformed_size[2], dtype=torch.float32)
+            return torch.zeros(3, transformed_size[1], transformed_size[0], dtype=torch.float32)
 
+        keypoints = transform_keypoints(keypoints, original_size, transformed_size)
 
-        # 변환된 크기에 맞게 포즈 이미지 생성
-        pose_img = draw_pose_from_cords(keypoints, (transformed_size[2], transformed_size[1]), radius=3, draw_bones=True)
-
+        pose_img = draw_pose_from_cords(keypoints, (transformed_size[1], transformed_size[0]), radius=3, draw_bones=True)
         pose_img_pil = Image.fromarray(pose_img)
-
-        # transform_gt 적용
-        pose_img_transformed = self.transform_gt(pose_img_pil)
-
+        pose_img_transformed = transform(pose_img_pil)
+        print(f"pose image shape: {pose_img_transformed.shape}")
         return pose_img_transformed
-
-
-
 
 class PisTestDeepFashion(Dataset):
     def __init__(self, root_dir, gt_img_size, pose_img_size, cond_img_size, test_img_size):
@@ -327,24 +315,24 @@ import random
 
 def visualize_dataset_samples(dataset, num_samples=5):
     sample_indices = random.sample(range(len(dataset)), num_samples)
-    fig, axs = plt.subplots(num_samples, 6, figsize=(50, 3 * num_samples))
+    scale_factor = 3  
+    fig, axs = plt.subplots(num_samples, 6, figsize=(6 * 176 * scale_factor / 100, num_samples * 256 * scale_factor / 100))
 
     for idx, i in enumerate(sample_indices):
         sample = dataset[i]
-        axs[idx, 0].imshow(sample['img_src'].permute(1, 2, 0) * 0.5 + 0.5, aspect = 'auto')
+        axs[idx, 0].imshow(sample['img_src'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
         axs[idx, 0].set_title("Source Image")
-        axs[idx, 2].imshow(sample['img_tgt'].permute(1, 2, 0) * 0.5 + 0.5, aspect = 'auto')
-        axs[idx, 2].set_title("Target Image")
-        axs[idx, 4].imshow(sample['img_garment'].permute(1, 2, 0) * 0.5 + 0.5, aspect = 'auto')
-        axs[idx, 4].set_title("Garment Image")
-        axs[idx, 5].imshow(sample['img_cond'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')  # ensure original aspect ratio
-        axs[idx, 5].set_title("Conditioned Image")
-        axs[idx, 1].imshow(sample['pose_img_src'][0].detach().numpy(), cmap='gray', aspect='auto')  # enforce equal aspect ratio
+        axs[idx, 1].imshow(sample['pose_img_src'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
         axs[idx, 1].set_title("Pose Image Src")
-        axs[idx, 3].imshow(sample['pose_img_tgt'][0].detach().numpy(), cmap='gray', aspect='auto')  # enforce equal aspect ratio
+        axs[idx, 2].imshow(sample['img_tgt'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
+        axs[idx, 2].set_title("Target Image")
+        axs[idx, 3].imshow(sample['pose_img_tgt'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
         axs[idx, 3].set_title("Pose Image Tgt")
+        axs[idx, 4].imshow(sample['img_garment'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
+        axs[idx, 4].set_title("Garment Image")
+        axs[idx, 5].imshow(sample['img_cond'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
+        axs[idx, 5].set_title("Conditioned Image")
 
-        # Set aspect of all axes
         for ax in axs[idx]:
             ax.axis('off')
 
