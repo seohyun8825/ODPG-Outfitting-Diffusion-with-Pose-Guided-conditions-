@@ -1,40 +1,38 @@
-"""
-@author: Yanzuo Lu
-@author: oliveryanzuolu@gmail.com
-"""
+import glob
+import logging
+import math
+import os
+import random
+import sys
+import numpy as np
+import pandas as pd
+import torch
+import torchvision.transforms as transforms
+from PIL import Image, ImageOps
+from torch.utils.data import Dataset
+from pathlib import Path
+import cv2
+import re
+sys.path.append('C:\\Users\\user\\Desktop\\CFLD\\CFLD')
 
-import glob
-import logging
-import math
-import os
-import random
-import sys
-import numpy as np
-import pandas as pd
-import torch
-import torchvision.transforms as transforms
-from PIL import Image
-from torch.utils.data import Dataset
-sys.path.append('C:\\Users\\user\\Desktop\\CFLD\\CFLD')
-from pose_utils import transform_keypoints, draw_pose_from_cords, load_pose_cords_from_strings
-logger = logging.getLogger()
-import cv2
-import glob
-import logging
-import math
-import os
-import random
-import sys
-import numpy as np
-import pandas as pd
-import torch
-import torchvision.transforms as transforms
-from PIL import Image
-from torch.utils.data import Dataset
-sys.path.append('C:\\Users\\user\\Desktop\\CFLD\\CFLD')
+# Add the preprocess/humanparsing directory to sys.path
+sys.path.insert(0, 'C:\\Users\\user\\Desktop\\CFLD\\CFLD\\preprocess\\humanparsing')
+
+# Import pose_utils and human parsing functions
 from pose_utils import transform_keypoints, draw_pose_from_cords, load_pose_cords_from_strings, cords_to_map
+from run_parsing import Parsing
+from getmask import get_mask_location
+
 logger = logging.getLogger()
-import cv2
+
+# Initialize the parsing model
+parsing_model = Parsing(gpu_id=0)  # GPU ID 설정
+
+
+
+import torch.nn.functional as F
+
+from PIL import ImageOps
 
 class PisTrainDeepFashion(Dataset):
     def __init__(self, root_dir, gt_img_size, pose_img_size, cond_img_size, min_scale,
@@ -60,6 +58,11 @@ class PisTrainDeepFashion(Dataset):
         self.annotation_file = self.annotation_file.set_index('name')
 
         self.transform_gt = transforms.Compose([
+            transforms.Resize(gt_img_size, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        ])
+        self.transform_gt_1 = transforms.Compose([
             transforms.Resize(gt_img_size, interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
@@ -126,42 +129,32 @@ class PisTrainDeepFashion(Dataset):
         pose_img_src = self.build_pose_img(img_path_from, original_size_from, self.transform_gt)
         pose_img_tgt = self.build_pose_img(img_path_to, original_size_to, self.transform_gt)
 
-        mask = None
-        if len(self.pred_ratio) > 0:
-            H, W = self.cond_img_size[0] // self.psz, self.cond_img_size[1] // self.psz
-            high = self.get_pred_ratio() * H * W
+        # Generate mask for img_src
+        parsed_image_src, _ = parsing_model(img_from)
+        keypoints_src = self.load_keypoints(img_path_from)
+        mask_src, _ = get_mask_location("hd", "upper_body", parsed_image_src, keypoints_src)
+        mask_src = mask_src.resize(original_size_from, Image.NEAREST)
+        
+        # Padding mask_src to match the original size
+        mask_src = self.pad_to_match(mask_src, original_size_from)
+        mask_src = self.transform_gt(mask_src.convert('RGB'))
+        print(f"mask_src after transform : {mask_src.shape}")
 
-            mask = np.zeros((H, W), dtype=bool)
-            mask_count = 0
-            while mask_count < high:
-                max_mask_patches = high - mask_count
+        # Generate masked image for img_src
+        masked_img_src = img_src * (1 - mask_src)
 
-                delta = 0
-                for attempt in range(10):
-                    low = (min(H, W) // 3) ** 2
-                    target_area = random.uniform(low, max_mask_patches)
-                    aspect_ratio = math.exp(random.uniform(*self.log_aspect_ratio))
-                    h = int(round(math.sqrt(target_area * aspect_ratio)))
-                    w = int(round(math.sqrt(target_area / aspect_ratio)))
-                    if w < W and h < H:
-                        top = random.randint(0, H - h)
-                        left = random.randint(0, W - w)
+        # Generate mask for img_tgt
+        parsed_image_tgt, _ = parsing_model(img_to)
+        keypoints_tgt = self.load_keypoints(img_path_to)
+        mask_tgt, _ = get_mask_location("hd", "upper_body", parsed_image_tgt, keypoints_tgt)
+        mask_tgt = mask_tgt.resize(original_size_to, Image.NEAREST)
+        
+        # Padding mask_tgt to match the original size
+        mask_tgt = self.pad_to_match(mask_tgt, original_size_to)
+        mask_tgt = self.transform_gt(mask_tgt.convert('RGB'))
 
-                        num_masked = mask[top: top + h, left: left + w].sum()
-                        if 0 < h * w - num_masked <= max_mask_patches:
-                            for i in range(top, top + h):
-                                for j in range(left, left + w):
-                                    if mask[i, j] == 0:
-                                        mask[i, j] = 1
-                                        delta += 1
-
-                    if delta > 0:
-                        break
-
-                if delta == 0:
-                    break
-                else:
-                    mask_count += delta
+        # Generate masked image for img_tgt
+        masked_img_tgt = img_tgt * (1 - mask_tgt)
 
         return_dict = {
             "img_src": img_src,
@@ -169,10 +162,25 @@ class PisTrainDeepFashion(Dataset):
             "img_cond": img_cond,
             "pose_img_src": pose_img_src,
             "pose_img_tgt": pose_img_tgt,
-            "img_garment": img_garment
+            "img_garment": img_garment,
+            "masked_img_src": masked_img_src,
+            "masked_img_tgt": masked_img_tgt
         }
         return return_dict
 
+    def pad_to_match(self, img, target_size):
+        """
+        Pads the given image to match the target size.
+        """
+        width, height = img.size
+        target_width, target_height = target_size
+        padding = (
+            (target_width - width) // 2,
+            (target_height - height) // 2,
+            (target_width - width + 1) // 2,
+            (target_height - height + 1) // 2
+        )
+        return ImageOps.expand(img, padding)
 
     def build_pose_img(self, img_path, original_size, transform):
         img = Image.open(img_path).convert('RGB')
@@ -206,6 +214,15 @@ class PisTrainDeepFashion(Dataset):
 
         return combined_pose
 
+    def load_keypoints(self, img_path):
+        string = self.annotation_file.loc[os.path.basename(img_path)]
+        keypoints_y = list(map(int, re.findall(r'\d+', string['keypoints_y'])))
+        keypoints_x = list(map(int, re.findall(r'\d+', string['keypoints_x'])))
+        keypoints = {
+            'pose_keypoints_2d': list(zip(keypoints_x, keypoints_y))
+        }
+        return keypoints
+
 
 class PisTestDeepFashion(Dataset):
     def __init__(self, root_dir, gt_img_size, pose_img_size, cond_img_size, test_img_size):
@@ -233,6 +250,7 @@ class PisTestDeepFashion(Dataset):
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
+
         self.transform_cond = transforms.Compose([
             transforms.Resize(cond_img_size, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
             transforms.ToTensor(),
@@ -358,8 +376,7 @@ train_dataset = PisTrainDeepFashion(root_dir="C:\\Users\\user\\Desktop\\CFLD\\CF
 #print_dataset_samples(train_dataset)
 
 
-import matplotlib.pyplot as plt
-import random
+
 
 import matplotlib.pyplot as plt
 import random
@@ -367,14 +384,13 @@ import random
 def visualize_dataset_samples(dataset, num_samples=5):
     sample_indices = random.sample(range(len(dataset)), num_samples)
     scale_factor = 3  
-    fig, axs = plt.subplots(num_samples, 6, figsize=(6 * 176 * scale_factor / 100, num_samples * 256 * scale_factor / 100))
+    fig, axs = plt.subplots(num_samples, 8, figsize=(8 * 176 * scale_factor / 100, num_samples * 256 * scale_factor / 100))
 
     for idx, i in enumerate(sample_indices):
         sample = dataset[i]
         axs[idx, 0].imshow(sample['img_src'].permute(1, 2, 0).numpy() * 0.5 + 0.5, aspect='auto')
         axs[idx, 0].set_title("Source Image")
         
-        # Correcting the visualization for pose images
         pose_img_src = sample['pose_img_src'][:3].permute(1, 2, 0).numpy()
         axs[idx, 1].imshow(pose_img_src * 0.5 + 0.5, aspect='auto')
         axs[idx, 1].set_title("Pose Image Src")
@@ -391,6 +407,12 @@ def visualize_dataset_samples(dataset, num_samples=5):
 
         axs[idx, 5].imshow(sample['img_cond'].permute(1, 2, 0).numpy() * 0.5 + 0.5, aspect='auto')
         axs[idx, 5].set_title("Conditioned Image")
+
+        axs[idx, 6].imshow(sample['masked_img_src'].permute(1, 2, 0).numpy() * 0.5 + 0.5, aspect='auto')
+        axs[idx, 6].set_title("Masked Src Image")
+
+        axs[idx, 7].imshow(sample['masked_img_tgt'].permute(1, 2, 0).numpy() * 0.5 + 0.5, aspect='auto')
+        axs[idx, 7].set_title("Masked Tgt Image")
 
         for ax in axs[idx]:
             ax.axis('off')
