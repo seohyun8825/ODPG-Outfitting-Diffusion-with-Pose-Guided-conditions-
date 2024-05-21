@@ -19,6 +19,22 @@ sys.path.append('C:\\Users\\user\\Desktop\\CFLD\\CFLD')
 from pose_utils import transform_keypoints, draw_pose_from_cords, load_pose_cords_from_strings
 logger = logging.getLogger()
 import cv2
+import glob
+import logging
+import math
+import os
+import random
+import sys
+import numpy as np
+import pandas as pd
+import torch
+import torchvision.transforms as transforms
+from PIL import Image
+from torch.utils.data import Dataset
+sys.path.append('C:\\Users\\user\\Desktop\\CFLD\\CFLD')
+from pose_utils import transform_keypoints, draw_pose_from_cords, load_pose_cords_from_strings, cords_to_map
+logger = logging.getLogger()
+import cv2
 
 class PisTrainDeepFashion(Dataset):
     def __init__(self, root_dir, gt_img_size, pose_img_size, cond_img_size, min_scale,
@@ -33,16 +49,11 @@ class PisTrainDeepFashion(Dataset):
 
         train_dir = os.path.join(root_dir, "train_highres")
         train_pairs_path = os.path.join(root_dir, "fashion-resize-pairs-train.csv")
-        print(f"Root Directory: {root_dir}")
-        print(f"Current Working Directory: {os.getcwd()}")
 
         if not os.path.exists(train_pairs_path):
             print(f"File does not exist: {train_pairs_path}")
         else:
-            print(f"File exists: {train_pairs_path}")
             train_pairs = pd.read_csv(train_pairs_path)
-        print(f"Checking file path: {train_pairs_path}")  
-        train_pairs = pd.read_csv(train_pairs_path)
 
         self.img_items = self.process_dir(root_dir, train_pairs)
         self.annotation_file = pd.read_csv(os.path.join(root_dir, "fashion-resize-annotation-train.csv"), sep=':')
@@ -161,25 +172,40 @@ class PisTrainDeepFashion(Dataset):
             "img_garment": img_garment
         }
         return return_dict
+
+
     def build_pose_img(self, img_path, original_size, transform):
         img = Image.open(img_path).convert('RGB')
         transformed_img = transform(img)
-        transformed_size = (transformed_img.shape[2], transformed_img.shape[1])  
+        transformed_size = (transformed_img.shape[2], transformed_img.shape[1])
 
         string = self.annotation_file.loc[os.path.basename(img_path)]
         keypoints = load_pose_cords_from_strings(string['keypoints_y'], string['keypoints_x'])
 
         if keypoints.size == 0:
             print("Warning: No valid keypoints for", img_path)
-            return torch.zeros(3, transformed_size[1], transformed_size[0], dtype=torch.float32)
+            return torch.zeros(20, 256, 256, dtype=torch.float32)  # 수정된 반환 형태
 
         keypoints = transform_keypoints(keypoints, original_size, transformed_size)
 
-        pose_img = draw_pose_from_cords(keypoints, (transformed_size[1], transformed_size[0]), radius=3, draw_bones=True)
-        pose_img_pil = Image.fromarray(pose_img)
-        pose_img_transformed = transform(pose_img_pil)
-        print(f"pose image shape: {pose_img_transformed.shape}")
-        return pose_img_transformed
+        pose_map = cords_to_map(keypoints, (256, 256), transformed_size).transpose(2, 0, 1)
+        pose_img = draw_pose_from_cords(keypoints, (256, 256))
+
+        pose_map_tensor = torch.tensor(pose_map, dtype=torch.float32)
+        pose_img_tensor = torch.tensor(pose_img.transpose(2, 0, 1), dtype=torch.float32)
+
+        # Adjust number of channels in pose_map_tensor to be consistent
+        num_keypoints = 17  # Assume 17 keypoints for consistency
+        if pose_map_tensor.shape[0] < num_keypoints:
+            pad_size = num_keypoints - pose_map_tensor.shape[0]
+            pose_map_tensor = torch.nn.functional.pad(pose_map_tensor, (0, 0, 0, 0, 0, pad_size))
+        elif pose_map_tensor.shape[0] > num_keypoints:
+            pose_map_tensor = pose_map_tensor[:num_keypoints, :, :]
+
+        combined_pose = torch.cat([pose_img_tensor, pose_map_tensor], dim=0)
+
+        return combined_pose
+
 
 class PisTestDeepFashion(Dataset):
     def __init__(self, root_dir, gt_img_size, pose_img_size, cond_img_size, test_img_size):
@@ -187,7 +213,7 @@ class PisTestDeepFashion(Dataset):
         self.pose_img_size = pose_img_size
         root_dir = r"C:\Users\user\Desktop\CFLD\CFLD\fashion"
         test_pairs_path = os.path.join(root_dir, "fashion-resize-pairs-test.csv")
-        print(f"Test file path: {test_pairs_path}")  # 경로 출력
+        #print(f"Test file path: {test_pairs_path}")  
         if not os.path.exists(test_pairs_path):
             print(f"Test file does not exist: {test_pairs_path}")
         else:
@@ -234,8 +260,11 @@ class PisTestDeepFashion(Dataset):
         with open(img_path_to, 'rb') as f:
             img_to = Image.open(f).convert('RGB')
 
-        img_src = self.transform_gt(img_from) # for visualization
+        img_src = self.transform_gt(img_from) 
+        print(f"img_src shape : {img_src}")
+
         img_tgt = self.transform_gt(img_to) # for visualization
+        
         img_gt = self.transform_test(img_to) # for metrics, 3x256x176
         img_cond_from = self.transform_cond(img_from)
 
@@ -251,13 +280,32 @@ class PisTestDeepFashion(Dataset):
             "pose_img_to": pose_img_to
         }
 
-    def build_pose_img(self, img_path):
+    def build_pose_img(self, img_path, original_size, transform):
+        img = Image.open(img_path).convert('RGB')
+        print(f"img shape = {img}.shape")
+        transformed_img = transform(img)
+        print(f"trnasformed img: {transformed_img}")
+        transformed_size = (transformed_img.shape[2], transformed_img.shape[1])
+
         string = self.annotation_file.loc[os.path.basename(img_path)]
-        array = load_pose_cords_from_strings(string['keypoints_y'], string['keypoints_x'])
-        pose_map = torch.tensor(cords_to_map(array, tuple(self.pose_img_size), (256, 176)).transpose(2, 0, 1), dtype=torch.float32)
-        pose_img = torch.tensor(draw_pose_from_cords(array, tuple(self.pose_img_size), (256, 176)).transpose(2, 0, 1) / 255., dtype=torch.float32)
-        pose_img = torch.cat([pose_img, pose_map], dim=0)
-        return pose_img
+        keypoints = load_pose_cords_from_strings(string['keypoints_y'], string['keypoints_x'])
+
+        if keypoints.size == 0:
+            print("Warning: No valid keypoints for", img_path)
+            return torch.zeros(20, 256, 256, dtype=torch.float32)  # 수정된 반환 형태
+
+        keypoints = transform_keypoints(keypoints, original_size, transformed_size)
+
+        pose_map = cords_to_map(keypoints, (256, 256), transformed_size).transpose(2, 0, 1)
+        print(f"pose_map = {pose_map.size}")
+        pose_img = draw_pose_from_cords(keypoints, (256, 256))
+        print(f"pose_img = {pose_img}")
+        pose_map_tensor = torch.tensor(pose_map, dtype=torch.float32)
+        pose_img_tensor = torch.tensor(pose_img.transpose(2, 0, 1), dtype=torch.float32)
+        combined_pose = torch.cat([pose_img_tensor, pose_map_tensor], dim=0)
+        print(f"combined_pose shape = {combined_pose}")
+
+        return combined_pose
 
 
 class FidRealDeepFashion(Dataset):
@@ -307,8 +355,11 @@ train_dataset = PisTrainDeepFashion(root_dir="C:\\Users\\user\\Desktop\\CFLD\\CF
                                     cond_img_size=(128, 88), min_scale=0.8, log_aspect_ratio=(-0.2, 0.2),
                                     pred_ratio=[0.1], pred_ratio_var=[0.05], psz=16)
 
-print_dataset_samples(train_dataset)
+#print_dataset_samples(train_dataset)
 
+
+import matplotlib.pyplot as plt
+import random
 
 import matplotlib.pyplot as plt
 import random
@@ -320,17 +371,25 @@ def visualize_dataset_samples(dataset, num_samples=5):
 
     for idx, i in enumerate(sample_indices):
         sample = dataset[i]
-        axs[idx, 0].imshow(sample['img_src'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
+        axs[idx, 0].imshow(sample['img_src'].permute(1, 2, 0).numpy() * 0.5 + 0.5, aspect='auto')
         axs[idx, 0].set_title("Source Image")
-        axs[idx, 1].imshow(sample['pose_img_src'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
+        
+        # Correcting the visualization for pose images
+        pose_img_src = sample['pose_img_src'][:3].permute(1, 2, 0).numpy()
+        axs[idx, 1].imshow(pose_img_src * 0.5 + 0.5, aspect='auto')
         axs[idx, 1].set_title("Pose Image Src")
-        axs[idx, 2].imshow(sample['img_tgt'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
+
+        axs[idx, 2].imshow(sample['img_tgt'].permute(1, 2, 0).numpy() * 0.5 + 0.5, aspect='auto')
         axs[idx, 2].set_title("Target Image")
-        axs[idx, 3].imshow(sample['pose_img_tgt'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
+        
+        pose_img_tgt = sample['pose_img_tgt'][:3].permute(1, 2, 0).numpy()
+        axs[idx, 3].imshow(pose_img_tgt * 0.5 + 0.5, aspect='auto')
         axs[idx, 3].set_title("Pose Image Tgt")
-        axs[idx, 4].imshow(sample['img_garment'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
+
+        axs[idx, 4].imshow(sample['img_garment'].permute(1, 2, 0).numpy() * 0.5 + 0.5, aspect='auto')
         axs[idx, 4].set_title("Garment Image")
-        axs[idx, 5].imshow(sample['img_cond'].permute(1, 2, 0) * 0.5 + 0.5, aspect='auto')
+
+        axs[idx, 5].imshow(sample['img_cond'].permute(1, 2, 0).numpy() * 0.5 + 0.5, aspect='auto')
         axs[idx, 5].set_title("Conditioned Image")
 
         for ax in axs[idx]:

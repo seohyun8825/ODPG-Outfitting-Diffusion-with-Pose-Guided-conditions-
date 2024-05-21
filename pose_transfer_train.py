@@ -70,7 +70,6 @@ class build_model(nn.Module):
         self.pose_encoder = PoseEncoder(
             downscale_factor=cfg.MODEL.POSE_GUIDANCE_CONFIG.DOWNSCALE_FACTOR,
             pose_channels=cfg.MODEL.POSE_GUIDANCE_CONFIG.POSE_CHANNELS,
-            in_channels=cfg.MODEL.POSE_GUIDANCE_CONFIG.IN_CHANNELS,
             channels=cfg.MODEL.POSE_GUIDANCE_CONFIG.CHANNELS
         )
 
@@ -100,7 +99,23 @@ class build_model(nn.Module):
         bsz = x.shape[0]
         if self.training:
             bsz = bsz * 2
-            down_block_additional_residuals = self.pose_encoder(torch.cat([batched_inputs["pose_img_src"], batched_inputs["pose_img_tgt"]]))
+            pose_img_src = batched_inputs["pose_img_src"]
+            pose_img_tgt = batched_inputs["pose_img_tgt"]
+
+            print(f"Shape of pose_img_src: {pose_img_src.shape}")
+
+            print(f"Shape of pose_img_tgt: {pose_img_tgt.shape}")
+
+            # Ensure pose_img_src and pose_img_tgt have the correct shape
+            assert pose_img_src.shape == pose_img_tgt.shape, "Shapes of pose_img_src and pose_img_tgt must be identical"
+
+            # Concatenate along the batch dimension (dim=0)
+            pose_images = torch.cat([pose_img_src, pose_img_tgt], dim=0)
+
+            print(f"Shape after concatenation: {pose_images.shape}")
+
+            # Pass the concatenated tensor to the PoseEncoder
+            down_block_additional_residuals = self.pose_encoder(pose_images)
             up_block_additional_residuals = {k: torch.cat([v, v]) for k, v in up_block_additional_residuals.items()}
             c = self.decoder(x, features, down_block_additional_residuals)
             if not self.pose_query:
@@ -122,6 +137,7 @@ class build_model(nn.Module):
             c = torch.cat([self.learnable_vector.expand(bsz, -1, -1).to(dtype=x.dtype), c], dim=0)
 
         return c, down_block_additional_residuals, up_block_additional_residuals
+
 
 
 def main(cfg):
