@@ -27,10 +27,14 @@ from models import (AppearanceEncoder, Decoder, PoseEncoder, UNet,
                     VariationalAutoencoder, build_backbone, build_metric)
 from pose_transfer_test import build_test_loader, eval
 from utils import AverageMeter
+from unet_garm_2d_condition import UNetGarm2DConditionModel
+
+
+
+
 
 warnings.filterwarnings("ignore")
 logger = logging.getLogger()
-
 
 class build_model(nn.Module):
     def __init__(self, cfg):
@@ -91,6 +95,9 @@ class build_model(nn.Module):
         self.u_cond_down_block_guidance = cfg.MODEL.U_COND_DOWN_BLOCK_GUIDANCE
         self.u_cond_up_block_guidance = cfg.MODEL.U_COND_UP_BLOCK_GUIDANCE
 
+        # Initialize the outfitting UNet
+        self.outfitting_unet = UNetGarm2DConditionModel(cfg)
+
     def forward(self, batched_inputs):
         mask = batched_inputs["mask"] if "mask" in batched_inputs else None
         x, features = self.backbone(batched_inputs["img_cond"], mask=mask)
@@ -102,17 +109,11 @@ class build_model(nn.Module):
             pose_img_src = batched_inputs["pose_img_src"]
             pose_img_tgt = batched_inputs["pose_img_tgt"]
 
-            print(f"Shape of pose_img_src: {pose_img_src.shape}")
-
-            print(f"Shape of pose_img_tgt: {pose_img_tgt.shape}")
-
             # Ensure pose_img_src and pose_img_tgt have the correct shape
             assert pose_img_src.shape == pose_img_tgt.shape, "Shapes of pose_img_src and pose_img_tgt must be identical"
 
             # Concatenate along the batch dimension (dim=0)
             pose_images = torch.cat([pose_img_src, pose_img_tgt], dim=0)
-
-            print(f"Shape after concatenation: {pose_images.shape}")
 
             # Pass the concatenated tensor to the PoseEncoder
             down_block_additional_residuals = self.pose_encoder(pose_images)
@@ -136,8 +137,11 @@ class build_model(nn.Module):
             c = self.decoder(x, features, down_block_additional_residuals)
             c = torch.cat([self.learnable_vector.expand(bsz, -1, -1).to(dtype=x.dtype), c], dim=0)
 
-        return c, down_block_additional_residuals, up_block_additional_residuals
+        # Pass through the outfitting UNet
+        garment_features = batched_inputs["img_garment"]
+        outfitting_output = self.outfitting_unet(garment_features, c, up_block_additional_residuals)
 
+        return outfitting_output, down_block_additional_residuals, up_block_additional_residuals
 
 
 def main(cfg):
@@ -218,12 +222,6 @@ def main(cfg):
 
     vae = VariationalAutoencoder(pretrained_path).to(accelerator.device, dtype=weight_dtype)
 
-    # not trained, move to 16-bit to save memory
-    '''
-    vae = VariationalAutoencoder(
-        pretrained_path=cfg.MODEL.FIRST_STAGE_CONFIG.PRETRAINED_PATH
-    ).to(accelerator.device, dtype=weight_dtype)
-    '''
     scheduler_directory = r"C:\Users\user\Desktop\CFLD\CFLD\pretrained_models\scheduler"
     if cfg.MODEL.SCHEDULER_CONFIG.NAME == "euler":
         noise_scheduler = EulerDiscreteScheduler.from_pretrained(cfg.MODEL.SCHEDULER_CONFIG.PRETRAINED_PATH)
@@ -392,6 +390,7 @@ def main(cfg):
     train_time = time.time() - start_time
     logger.info(f'training completed, running time {datetime.timedelta(seconds=int(train_time))}')
     accelerator.end_training()
+
 
 
 if __name__ == "__main__":
