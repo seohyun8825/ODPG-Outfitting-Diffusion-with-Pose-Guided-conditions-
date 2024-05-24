@@ -53,14 +53,14 @@ def refine_mask(mask):
 
     return refine_mask
 
-def get_mask_location(model_type, category, model_parse: Image.Image, keypoint: dict, width=384,height=512):
+def get_mask_location(model_type, category, model_parse: Image.Image, keypoint: dict, width=172,height=256):
     im_parse = model_parse.resize((width, height), Image.NEAREST)
     parse_array = np.array(im_parse)
 
     if model_type == 'hd':
-        arm_width = 60
+        arm_width = 30
     elif model_type == 'dc':
-        arm_width = 45
+        arm_width = 22.5
     else:
         raise ValueError("model_type must be \'hd\' or \'dc\'!")
 
@@ -116,13 +116,13 @@ def get_mask_location(model_type, category, model_parse: Image.Image, keypoint: 
     arms_draw_left = ImageDraw.Draw(im_arms_left)
     arms_draw_right = ImageDraw.Draw(im_arms_right)
     if category == 'dresses' or category == 'upper_body':
-        shoulder_right = np.multiply(tuple(pose_data[2][:2]), height / 512.0)
-        shoulder_left = np.multiply(tuple(pose_data[5][:2]), height / 512.0)
-        elbow_right = np.multiply(tuple(pose_data[3][:2]), height / 512.0)
-        elbow_left = np.multiply(tuple(pose_data[6][:2]), height / 512.0)
-        wrist_right = np.multiply(tuple(pose_data[4][:2]), height / 512.0)
-        wrist_left = np.multiply(tuple(pose_data[7][:2]), height / 512.0)
-        ARM_LINE_WIDTH = int(arm_width / 512 * height)
+        shoulder_right = np.multiply(tuple(pose_data[2][:2]), height / 256.0)
+        shoulder_left = np.multiply(tuple(pose_data[5][:2]), height / 256.0)
+        elbow_right = np.multiply(tuple(pose_data[3][:2]), height / 256.0)
+        elbow_left = np.multiply(tuple(pose_data[6][:2]), height / 256.0)
+        wrist_right = np.multiply(tuple(pose_data[4][:2]), height / 256.0)
+        wrist_left = np.multiply(tuple(pose_data[7][:2]), height / 256.0)
+        ARM_LINE_WIDTH = int(arm_width / 256 * height)
         size_left = [shoulder_left[0] - ARM_LINE_WIDTH // 2, shoulder_left[1] - ARM_LINE_WIDTH // 2, shoulder_left[0] + ARM_LINE_WIDTH // 2, shoulder_left[1] + ARM_LINE_WIDTH // 2]
         size_right = [shoulder_right[0] - ARM_LINE_WIDTH // 2, shoulder_right[1] - ARM_LINE_WIDTH // 2, shoulder_right[0] + ARM_LINE_WIDTH // 2,
                       shoulder_right[1] + ARM_LINE_WIDTH // 2]
@@ -132,15 +132,15 @@ def get_mask_location(model_type, category, model_parse: Image.Image, keypoint: 
             im_arms_right = arms_right
         else:
             wrist_right = extend_arm_mask(wrist_right, elbow_right, 1.2)
-            arms_draw_right.line(np.concatenate((shoulder_right, elbow_right, wrist_right)).astype(np.uint16).tolist(), 'white', ARM_LINE_WIDTH, 'curve')
-            arms_draw_right.arc(size_right, 0, 360, 'white', ARM_LINE_WIDTH // 2)
+            # arms_draw_right.line(np.concatenate((shoulder_right, elbow_right, wrist_right)).astype(np.uint16).tolist(), 'white', ARM_LINE_WIDTH, 'curve')
+            # arms_draw_right.arc(size_right, 0, 360, 'white', ARM_LINE_WIDTH // 2)
 
         if wrist_left[0] <= 1. and wrist_left[1] <= 1.:
             im_arms_left = arms_left
         else:
             wrist_left = extend_arm_mask(wrist_left, elbow_left, 1.2)
-            arms_draw_left.line(np.concatenate((wrist_left, elbow_left, shoulder_left)).astype(np.uint16).tolist(), 'white', ARM_LINE_WIDTH, 'curve')
-            arms_draw_left.arc(size_left, 0, 360, 'white', ARM_LINE_WIDTH // 2)
+            # arms_draw_left.line(np.concatenate((wrist_left, elbow_left, shoulder_left)).astype(np.uint16).tolist(), 'white', ARM_LINE_WIDTH, 'curve')
+            # arms_draw_left.arc(size_left, 0, 360, 'white', ARM_LINE_WIDTH // 2)
 
         hands_left = np.logical_and(np.logical_not(im_arms_left), arms_left)
         hands_right = np.logical_and(np.logical_not(im_arms_right), arms_right)
