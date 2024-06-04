@@ -27,14 +27,12 @@ from models import (AppearanceEncoder, Decoder, PoseEncoder, UNet,
                     VariationalAutoencoder, build_backbone, build_metric)
 from pose_transfer_test import build_test_loader, eval
 from utils import AverageMeter
-from unet_garm_2d_condition import UNetGarm2DConditionModel
 
-
-
-
+import torchvision.transforms as transforms
 
 warnings.filterwarnings("ignore")
 logger = logging.getLogger()
+
 
 class build_model(nn.Module):
     def __init__(self, cfg):
@@ -95,36 +93,28 @@ class build_model(nn.Module):
         self.u_cond_down_block_guidance = cfg.MODEL.U_COND_DOWN_BLOCK_GUIDANCE
         self.u_cond_up_block_guidance = cfg.MODEL.U_COND_UP_BLOCK_GUIDANCE
 
-        # Initialize the outfitting UNet
-        self.outfitting_unet = UNetGarm2DConditionModel(cfg)
-
     def forward(self, batched_inputs):
+        transform_gt = transforms.Compose([
+                transforms.Resize((256, 256), interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+        ])
         mask = batched_inputs["mask"] if "mask" in batched_inputs else None
-        x, features = self.backbone(batched_inputs["img_cond"], mask=mask)
-        up_block_additional_residuals = self.appearance_encoder(features)
+        x1, features1 = self.backbone(batched_inputs["img_cond"], mask=mask)
+        img_garment = transform_gt(batched_inputs["img_garment"])
+        x2, features2 = self.backbone(img_garment, mask=mask)
+        up_block_additional_residuals = self.appearance_encoder(features1)
 
-        bsz = x.shape[0]
+        bsz = x1.shape[0]
         if self.training:
             bsz = bsz * 2
-            pose_img_src = batched_inputs["pose_img_src"]
-            pose_img_tgt = batched_inputs["pose_img_tgt"]
-
-            # Ensure pose_img_src and pose_img_tgt have the correct shape
-            assert pose_img_src.shape == pose_img_tgt.shape, "Shapes of pose_img_src and pose_img_tgt must be identical"
-
-            # Concatenate along the batch dimension (dim=0)
-            pose_images = torch.cat([pose_img_src, pose_img_tgt], dim=0)
-
-            # Pass the concatenated tensor to the PoseEncoder
-            down_block_additional_residuals = self.pose_encoder(pose_images)
+            down_block_additional_residuals = self.pose_encoder(torch.cat([batched_inputs["pose_img_src"], batched_inputs["pose_img_tgt"]]))
             up_block_additional_residuals = {k: torch.cat([v, v]) for k, v in up_block_additional_residuals.items()}
-            c = self.decoder(x, features, down_block_additional_residuals)
+            c = self.decoder(x2, features2, down_block_additional_residuals)
             if not self.pose_query:
                 c = torch.cat([c, c])
 
             u_cond_prop = torch.rand(bsz, 1, 1)
-            u_cond_prop = (u_cond_prop < self.u_cond_percent).to(dtype=x.dtype, device=x.device)
-            c = self.learnable_vector.expand(bsz, -1, -1).to(dtype=x.dtype) * u_cond_prop + c * (1 - u_cond_prop)
+            u_cond_prop = (u_cond_prop < self.u_cond_percent).to(dtype=x1.dtype, device=x1.device)
+            c = self.learnable_vector.expand(bsz, -1, -1).to(dtype=x1.dtype) * u_cond_prop + c * (1 - u_cond_prop)
             if self.u_cond_down_block_guidance:
                 down_block_additional_residuals = [torch.zeros_like(sample) * u_cond_prop.unsqueeze(1) + \
                                                    sample * (1 - u_cond_prop.unsqueeze(1)) \
@@ -134,14 +124,10 @@ class build_model(nn.Module):
                                                  for k, v in up_block_additional_residuals.items()}
         else:
             down_block_additional_residuals = self.pose_encoder(batched_inputs["pose_img"])
-            c = self.decoder(x, features, down_block_additional_residuals)
-            c = torch.cat([self.learnable_vector.expand(bsz, -1, -1).to(dtype=x.dtype), c], dim=0)
+            c = self.decoder(x2, features2, down_block_additional_residuals)
+            c = torch.cat([self.learnable_vector.expand(bsz, -1, -1).to(dtype=x1.dtype), c], dim=0)
 
-        # Pass through the outfitting UNet
-        garment_features = batched_inputs["img_garment"]
-        outfitting_output = self.outfitting_unet(garment_features, c, up_block_additional_residuals)
-
-        return outfitting_output, down_block_additional_residuals, up_block_additional_residuals
+        return c, down_block_additional_residuals, up_block_additional_residuals
 
 
 def main(cfg):
@@ -188,7 +174,7 @@ def main(cfg):
 
     logger.info("preparing datasets...")
     train_data = PisTrainDeepFashion(
-        root_dir=r"C:\Users\user\Desktop\CFLD\CFLD\fashion",
+        root_dir=cfg.INPUT.ROOT_DIR,
         gt_img_size=cfg.INPUT.GT.IMG_SIZE,
         pose_img_size=cfg.INPUT.POSE.IMG_SIZE,
         cond_img_size=cfg.INPUT.COND.IMG_SIZE,
@@ -198,7 +184,6 @@ def main(cfg):
         pred_ratio_var=cfg.INPUT.COND.PRED_RATIO_VAR,
         psz=cfg.INPUT.COND.MASK_PATCH_SIZE
     )
-
     train_loader = DataLoader(
         train_data,
         cfg.INPUT.BATCH_SIZE // accelerator.num_processes // cfg.ACCELERATE.GRADIENT_ACCUMULATION_STEPS,
@@ -217,12 +202,11 @@ def main(cfg):
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    pretrained_path = r"C:\Users\user\Desktop\CFLD\CFLD\pretrained_models\vae"
-    
+    # not trained, move to 16-bit to save memory
+    vae = VariationalAutoencoder(
+        pretrained_path=cfg.MODEL.FIRST_STAGE_CONFIG.PRETRAINED_PATH
+    ).to(accelerator.device, dtype=weight_dtype)
 
-    vae = VariationalAutoencoder(pretrained_path).to(accelerator.device, dtype=weight_dtype)
-
-    scheduler_directory = r"C:\Users\user\Desktop\CFLD\CFLD\pretrained_models\scheduler"
     if cfg.MODEL.SCHEDULER_CONFIG.NAME == "euler":
         noise_scheduler = EulerDiscreteScheduler.from_pretrained(cfg.MODEL.SCHEDULER_CONFIG.PRETRAINED_PATH)
     elif cfg.MODEL.SCHEDULER_CONFIG.NAME == "pndm":
@@ -230,7 +214,7 @@ def main(cfg):
     elif cfg.MODEL.SCHEDULER_CONFIG.NAME == "ddim":
         noise_scheduler = DDIMScheduler.from_pretrained(cfg.MODEL.SCHEDULER_CONFIG.PRETRAINED_PATH)
     elif cfg.MODEL.SCHEDULER_CONFIG.NAME == "ddpm":
-        noise_scheduler = DDPMScheduler.from_pretrained(scheduler_directory)
+        noise_scheduler = DDPMScheduler.from_pretrained(cfg.MODEL.SCHEDULER_CONFIG.PRETRAINED_PATH)
 
     inverse_noise_scheduler = DDIMInverseScheduler(
         num_train_timesteps=noise_scheduler.num_train_timesteps,
@@ -390,7 +374,6 @@ def main(cfg):
     train_time = time.time() - start_time
     logger.info(f'training completed, running time {datetime.timedelta(seconds=int(train_time))}')
     accelerator.end_training()
-
 
 
 if __name__ == "__main__":

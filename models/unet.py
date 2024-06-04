@@ -1906,7 +1906,7 @@ class ResidualUNet2DConditionModel(UNet2DConditionModel):
 class UNet(nn.Module):
     def __init__(self, cfg):
         super().__init__()
-        pretrained_path = r"C:\Users\user\Desktop\CFLD\CFLD\pretrained_models\unet"
+        pretrained_path = "/home/user/Desktop/CFLD/CFLD/pretrained_models/unet"
         self.model = ResidualUNet2DConditionModel.from_pretrained(
             pretrained_path, use_safetensors = True)
         self.model.requires_grad_(False)

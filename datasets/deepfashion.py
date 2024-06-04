@@ -5,7 +5,7 @@ import os
 import random
 import sys
 import numpy as np
-import pandas as pd
+import pandas as pd 
 import torch
 import torchvision.transforms as transforms
 from PIL import Image, ImageOps
@@ -132,29 +132,37 @@ class PisTrainDeepFashion(Dataset):
         # Generate mask for img_src
         parsed_image_src, _ = parsing_model(img_from)
         keypoints_src = self.load_keypoints(img_path_from)
-        #mask_src, _ = get_mask_location("hd", "upper_body", parsed_image_src, keypoints_src)
-        #mask_src = mask_src.resize(original_size_from, Image.NEAREST)
+        mask_src, _ = get_mask_location("hd", "upper_body", parsed_image_src, keypoints_src)
+        mask_src = mask_src.resize(original_size_from, Image.NEAREST)
         
         # Padding mask_src to match the original size
-        #mask_src = self.pad_to_match(mask_src, original_size_from)
-        #mask_src = self.transform_gt(mask_src.convert('RGB'))
-        #print(f"mask_src after transform : {mask_src.shape}")
+        mask_src = self.pad_to_match(mask_src, original_size_from)
+        mask_src = self.transform_gt(mask_src.convert('RGB'))
+        print(f"mask_src after transform : {mask_src.shape}")
 
+
+        self.transform_gt = transforms.Compose([
+            transforms.Resize(gt_img_size, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+        ])
+
+        
         # Generate masked image for img_src
-        #masked_img_src = img_src * (1 - mask_src)
+        masked_img_src = img_src * (1 - mask_src)
 
         # Generate mask for img_tgt
-        #parsed_image_tgt, _ = parsing_model(img_to)
-        #keypoints_tgt = self.load_keypoints(img_path_to)
-        #mask_tgt, _ = get_mask_location("hd", "upper_body", parsed_image_tgt, keypoints_tgt)
-        #mask_tgt = mask_tgt.resize(original_size_to, Image.NEAREST)
+        parsed_image_tgt, _ = parsing_model(img_to)
+        keypoints_tgt = self.load_keypoints(img_path_to)
+        mask_tgt, _ = get_mask_location("hd", "upper_body", parsed_image_tgt, keypoints_tgt)
+        mask_tgt = mask_tgt.resize(original_size_to, Image.NEAREST)
         
         # Padding mask_tgt to match the original size
-        #mask_tgt = self.pad_to_match(mask_tgt, original_size_to)
-        #mask_tgt = self.transform_gt(mask_tgt.convert('RGB'))
+        mask_tgt = self.pad_to_match(mask_tgt, original_size_to)
+        mask_tgt = self.transform_gt(mask_tgt.convert('RGB'))
 
         # Generate masked image for img_tgt
-        #masked_img_tgt = img_tgt * (1 - mask_tgt)
+        masked_img_tgt = img_tgt * (1 - mask_tgt)
 
         return_dict = {
             "img_src": img_src,
@@ -175,10 +183,10 @@ class PisTrainDeepFashion(Dataset):
         width, height = img.size
         target_width, target_height = target_size
         padding = (
-            (target_width - width) // 2,
-            (target_height - height) // 2,
-            (target_width - width + 1) // 2,
-            (target_height - height + 1) // 2
+            (target_width * 5 - width) // 2,
+            (target_height * 5 - height) // 2,
+            (target_width * 5- width + 1) // 2,
+            (target_height * 5 - height + 1) // 2
         )
         return ImageOps.expand(img, padding)
 
@@ -421,4 +429,4 @@ def visualize_dataset_samples(dataset, num_samples=5):
     plt.show()
 
 
-#visualize_dataset_samples(train_dataset)
+visualize_dataset_samples(train_dataset)
