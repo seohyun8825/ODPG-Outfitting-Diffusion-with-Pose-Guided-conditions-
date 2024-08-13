@@ -4,6 +4,7 @@
 
 [![CKAIA 2024](https://img.shields.io/badge/CKAIA%202024-Accepted-brightgreen)](YourConferenceLinkHere)&nbsp;
 [![Poster](https://img.shields.io/badge/Demo-Try%20it%20out-blue)](YourDemoLinkHere)&nbsp;
+[![Poster](https://img.shields.io/badge/Poster%20it%20out-blue)](YourDemoLinkHere)&nbsp;
 [![GitHub stars](https://img.shields.io/github/stars/seohyun8825/ODPG_1?style=social)](https://github.com/seohyun8825/ODPG_1)
 
 </div>
