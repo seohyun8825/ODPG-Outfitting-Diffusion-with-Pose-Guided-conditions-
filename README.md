@@ -40,10 +40,10 @@ To prepare the "In-shop Clothes Retrieval Benchmark" dataset, follow these steps
 
 ## 📋 TODO
 
-- [ ] Provide checkpoint for inference to facilitate easier model testing.
-- [ ] Develop and document training scripts with detailed usage instructions.
-- [ ] Update scripts for ablation studies to better understand model components.
-- [x] ~~Model pipeline documentation is completed and included above.~~
+- [ ] Checkpoint update
+- [ ] Training scripts with detailed usage instructions
+- [ ] Scripts for ablation studies
+- [x] ~~Model pipeline~~
 
 ## 🔧 Installation
 To set up and run our model, follow these steps:
