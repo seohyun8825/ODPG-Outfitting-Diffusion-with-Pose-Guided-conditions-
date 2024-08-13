@@ -10,6 +10,7 @@
 
 <p align="center">
   <strong>Our model adapts to both pose and garment features, providing a high-quality virtual try-on experience.</strong>
+  
 </p>
 
 <p align="center">
@@ -42,3 +43,7 @@ To set up and run our model, follow these steps:
 
 1. Clone the repository: `git clone https://github.com/seohyun8825/ODPG_1.git`
 2. Install required packages: `pip install -r requirements.txt`
+
+## 🔍 Code Base and Modifications
+This project is built on top of the [CFLD official code](https://github.com/YanzuoLu/CFLD). The original codebase has been significantly modified to include additional conditioning on garment features, enabling the model to handle more complex virtual try-on scenarios where both pose and clothing attributes are considered.
+
