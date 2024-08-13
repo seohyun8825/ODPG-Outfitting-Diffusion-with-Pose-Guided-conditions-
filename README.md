@@ -38,6 +38,13 @@ To prepare the "In-shop Clothes Retrieval Benchmark" dataset, follow these steps
    - Each image is annotated with bounding box, clothing type, and pose type.
 3. Extract the downloaded files into the `Fashion` folder within your project directory to maintain the required structure.
 
+## 📋 TODO
+
+- [ ] Provide checkpoint for inference to facilitate easier model testing.
+- [ ] Develop and document training scripts with detailed usage instructions.
+- [ ] Update scripts for ablation studies to better understand model components.
+- [x] Model pipeline documentation is completed and included above.
+
 ## 🔧 Installation
 To set up and run our model, follow these steps:
 
