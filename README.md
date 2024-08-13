@@ -52,5 +52,5 @@ To set up and run our model, follow these steps:
 2. Install required packages: `pip install -r requirements.txt`
 
 ## 🔍 Code Base and Modifications
-This project is built on top of the [CFLD official code](https://github.com/YanzuoLu/CFLD). The original codebase has been significantly modified to include additional conditioning on garment features, enabling the model to handle more complex virtual try-on scenarios where both pose and clothing attributes are considered.
+This project is built on top of the [CFLD official code](https://github.com/YanzuoLu/CFLD). The original codebase has been modified to include additional conditioning on garment features, enabling the model to handle more complex virtual try-on scenarios where both pose and clothing attributes are considered.
 
