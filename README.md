@@ -44,6 +44,7 @@ To prepare the "In-shop Clothes Retrieval Benchmark" dataset, follow these steps
 - [ ] Checkpoint update
 - [ ] Training scripts with detailed usage instructions
 - [ ] Scripts for ablation studies
+- [ ] Demo
 - [x] ~~Model pipeline~~
 
 ## 🔧 Installation
