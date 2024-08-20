@@ -120,7 +120,7 @@ def show_images(images, titles=None, columns=3, figsize=(10, 10)):
     plt.show()
 
 # FashionDataset 인스턴스 생성
-root_dir = 'C:/Users/user/Desktop/CFLD/CFLD/fashion'  # Windows 경로 형식으로 변경
+root_dir = '/home/user/Desktop/CFLD/CFLD/fashion'  # Windows 경로 형식으로 변경
 dataset = FashionDataset(root_dir=root_dir, phase='train', gt_img_size=(256, 256), pose_img_size=(256, 176))
 
 # 데이터셋에서 몇 개의 샘플을 가져와 시각화

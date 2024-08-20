@@ -1,5 +1,5 @@
 import csv
-csv_path = 'C:/Users/user/Desktop/CFLD/CFLD/fashion/fashion-resize-annotation-train.csv'
+csv_path = '/home/user/Desktop/CFLD/CFLD/fashion/fashion-resize-annotation-train.csv'
 with open(csv_path, 'r', newline='') as csvfile:
     reader = csv.reader(csvfile)
     headers = next(reader)
