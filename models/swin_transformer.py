@@ -635,7 +635,7 @@ class SwinTransformer(nn.Module):
 
 def load_pretrained(model, pretrained_path, checkpoint_key="model", checkpoint_prefix=None):
     # logger.info(f"==============> Loading weight {pretrained_path} for fine-tuning......")
-    pretrained_path = r"C:\Users\user\Desktop\CFLD\CFLD\pretrained_models\swin\swin_base_patch4_window12_384_22kto1k.pth"
+    pretrained_path = r"/home/user/Desktop/CFLD/CFLD/pretrained_models/swin/swin_base_patch4_window12_384_22kto1k.pth"
     state_dict = torch.load(pretrained_path, map_location='cpu')
     if checkpoint_key:
         state_dict = state_dict[checkpoint_key]
