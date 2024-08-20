@@ -33,7 +33,7 @@ import torchvision.transforms as transforms
 warnings.filterwarnings("ignore")
 logger = logging.getLogger()
 
-import torch.nn.functional as F
+
 class build_model(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -94,24 +94,14 @@ class build_model(nn.Module):
         self.u_cond_up_block_guidance = cfg.MODEL.U_COND_UP_BLOCK_GUIDANCE
 
     def forward(self, batched_inputs):
-        # Downscale images for internal processing
-        img_cond = F.interpolate(batched_inputs["img_cond"], size=(256, 256), mode='bilinear', align_corners=False)
-        img_garment = F.interpolate(batched_inputs["img_garment"], size=(256, 256), mode='bilinear', align_corners=False)
-
+        transform_gt = transforms.Compose([
+                transforms.Resize((256, 256), interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+        ])
         mask = batched_inputs["mask"] if "mask" in batched_inputs else None
-        x1, features1 = self.backbone(img_cond, mask=mask)
+        x1, features1 = self.backbone(batched_inputs["img_cond"], mask=mask)
+        img_garment = transform_gt(batched_inputs["img_garment"])
         x2, features2 = self.backbone(img_garment, mask=mask)
-
-        # Debugging outputs
-        # print(f"x1 shape: {x1.shape}")
-        # print(f"x2 shape: {x2.shape}")
-        # print(f"features1 length: {len(features1)}, features2 length: {len(features2)}")
-        # if len(features1) > 0:
-        #     print(f"features1[0] shape: {features1[0].shape}")
-        # if len(features2) > 0:
-        #     print(f"features2[0] shape: {features2[0].shape}")
-
-        up_block_additional_residuals = self.appearance_encoder(features1, features2)  # Pass garment features
+        up_block_additional_residuals = self.appearance_encoder(features1)
 
         bsz = x1.shape[0]
         if self.training:
@@ -134,7 +124,6 @@ class build_model(nn.Module):
                                                  for k, v in up_block_additional_residuals.items()}
         else:
             down_block_additional_residuals = self.pose_encoder(batched_inputs["pose_img"])
-            # up_block_additional_residuals = self.appearance_encoder(features1, features2)  # Pass garment features
             c = self.decoder(x2, features2, down_block_additional_residuals)
             c = torch.cat([self.learnable_vector.expand(bsz, -1, -1).to(dtype=x1.dtype), c], dim=0)
 
@@ -226,21 +215,7 @@ def main(cfg):
         noise_scheduler = DDIMScheduler.from_pretrained(cfg.MODEL.SCHEDULER_CONFIG.PRETRAINED_PATH)
     elif cfg.MODEL.SCHEDULER_CONFIG.NAME == "ddpm":
         noise_scheduler = DDPMScheduler.from_pretrained(cfg.MODEL.SCHEDULER_CONFIG.PRETRAINED_PATH)
-    else:
-        raise ValueError(f"Unknown scheduler name: {cfg.MODEL.SCHEDULER_CONFIG.NAME}")
 
-    inverse_noise_scheduler = DDIMInverseScheduler(
-        num_train_timesteps=noise_scheduler.num_train_timesteps,
-        beta_start=noise_scheduler.beta_start,
-        beta_end=noise_scheduler.beta_end,
-        beta_schedule=noise_scheduler.beta_schedule,
-        trained_betas=noise_scheduler.trained_betas,
-        clip_sample=noise_scheduler.clip_sample,
-        set_alpha_to_one=noise_scheduler.set_alpha_to_one,
-        steps_offset=noise_scheduler.steps_offset,
-        prediction_type=noise_scheduler.prediction_type,
-        timestep_spacing=noise_scheduler.timestep_spacing
-    )
     inverse_noise_scheduler = DDIMInverseScheduler(
         num_train_timesteps=noise_scheduler.num_train_timesteps,
         beta_start=noise_scheduler.beta_start,
@@ -295,6 +270,7 @@ def main(cfg):
         logger.info(f"epoch {epoch + 1} start")
         batch_time = AverageMeter()
         total_loss = AverageMeter()
+
         for i, batch in enumerate(train_loader):
             with accelerator.accumulate(model, unet):
                 optimizer.zero_grad()
@@ -308,21 +284,25 @@ def main(cfg):
                 bsz = latents.shape[0]
 
                 if cfg.MODEL.SCHEDULER_CONFIG.CUBIC_SAMPLING:
+                    # Cubic sampling to sample a random timestep for each image
                     timesteps = torch.rand((bsz, ), device=accelerator.device)
                     timesteps = (1 - timesteps**3) * noise_scheduler.config.num_train_timesteps
                     timesteps = timesteps.long()
                     timesteps = torch.clamp(timesteps, 0, noise_scheduler.config.num_train_timesteps - 1)
                 else:
+                    # Uniform sampling to sample a random timestep for each image
                     timesteps = torch.randint(noise_scheduler.config.num_train_timesteps, (bsz, ), device=accelerator.device)
 
+                # Add noise to the latents according to the noise magnitude at each timestep
+                # (this is the forward diffusion process)
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-                # Forward pass to get context, down_block and up_block residuals
+                # get embedding
                 c, down_block_additional_residuals, up_block_additional_residuals = model(batch)
                 down_block_additional_residuals = [sample.to(dtype=weight_dtype) for sample in down_block_additional_residuals]
                 up_block_additional_residuals = {k: v.to(dtype=weight_dtype) for k, v in up_block_additional_residuals.items()}
 
-                # Predict using UNet
+                # predict
                 with accelerator.autocast():
                     encoder_hidden_states = c.to(dtype=weight_dtype)
                     model_pred = unet(
@@ -330,28 +310,15 @@ def main(cfg):
                         down_block_additional_residuals=down_block_additional_residuals,
                         up_block_additional_residuals=up_block_additional_residuals)
 
-                    # Simple loss
-                    loss_simple = (noise - model_pred) ** 2
-                    loss_simple = loss_simple.mean()
-
-                    # Garment prediction and loss
-                    garment_pred = unet(
-                        sample=noisy_latents, timestep=timesteps, encoder_hidden_states=encoder_hidden_states,
-                        down_block_additional_residuals=down_block_additional_residuals,
-                        up_block_additional_residuals=up_block_additional_residuals)
-                    loss_garment = (noise - garment_pred) ** 2
-                    loss_garment = loss_garment.mean()
-
-                    # Total loss with garment loss included
-                    total_loss_value = loss_simple + cfg.MODEL.GARMENT_LOSS_WEIGHT * loss_garment
-                    loss = total_loss_value / cfg.ACCELERATE.GRADIENT_ACCUMULATION_STEPS
-
-                    if torch.isnan(loss).any():
-                        accelerator.set_trigger()
-                    if accelerator.check_trigger():
-                        logger.info("loss is nan, stop training")
-                        accelerator.end_training()
-                        time.sleep(86400)
+                loss_simple = (noise - model_pred) ** 2
+                loss_simple = loss_simple.mean()
+                loss = loss_simple / cfg.ACCELERATE.GRADIENT_ACCUMULATION_STEPS
+                if torch.isnan(loss).any():
+                    accelerator.set_trigger()
+                if accelerator.check_trigger():
+                    logger.info("loss is nan, stop training")
+                    accelerator.end_training()
+                    time.sleep(86400) # waiting for...
 
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
@@ -359,7 +326,7 @@ def main(cfg):
                 optimizer.step()
                 lr_scheduler.step()
 
-            total_loss.update(total_loss_value.item())
+            total_loss.update(loss_simple.item())
             batch_time.update(time.time() - end_time)
             end_time = time.time()
 
@@ -407,6 +374,7 @@ def main(cfg):
     train_time = time.time() - start_time
     logger.info(f'training completed, running time {datetime.timedelta(seconds=int(train_time))}')
     accelerator.end_training()
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pose Transfer Training")
