@@ -417,5 +417,5 @@ train_dataset = PisTrainDeepFashion(root_dir="/home/user/Desktop/CFLD/CFLD/fashi
 
 test_dataset = PisTestDeepFashion(root_dir="/home/user/Desktop/CFLD/CFLD/fashion", gt_img_size=(256, 176), pose_img_size=(256, 176), cond_img_size=(128, 88), test_img_size=(256, 176))
 
-save_dataset_samples(train_dataset, num_samples=2, save_dir='samples', prefix='train')
-save_dataset_samples(test_dataset, num_samples=2, save_dir='samples', prefix='test')
+# save_dataset_samples(train_dataset, num_samples=2, save_dir='samples', prefix='train')
+# save_dataset_samples(test_dataset, num_samples=2, save_dir='samples', prefix='test')

@@ -1,15 +1,16 @@
 import csv
+# add delimiter=':' if fieldname is divided by :
 
 # Define the path to your input and output CSV files
-input_csv_file_path = 'fashion/fashion-resize-pairs-train.csv'
-output_csv_file_path = 'fashion-resize-pairs-train.csv'
+input_csv_file_path = 'fashion/fashion-resize-pairs-train-unmasked.csv'
+output_csv_file_path = 'fashion/fashion-resize-pairs-train.csv'
 
-count = 0
 
 # Read the input CSV file and process each row
 with open(input_csv_file_path, mode='r', newline='') as input_file:
     reader = csv.DictReader(input_file)
     fieldnames = reader.fieldnames
+    print(fieldnames)
 
     # Prepare to write to the output CSV file
     with open(output_csv_file_path, mode='w', newline='') as output_file:
@@ -17,8 +18,7 @@ with open(input_csv_file_path, mode='r', newline='') as input_file:
         writer.writeheader()
 
         for row in reader:
-            if count > 5:
-                break
+            writer.writerow(row)
             from_file = row['from']
             # Add '_masked' before the file extension
             from_file_masked = from_file.rsplit('.', 1)
@@ -27,6 +27,5 @@ with open(input_csv_file_path, mode='r', newline='') as input_file:
 
             # Write the modified row to the new CSV file
             writer.writerow(row)
-            count += 1
 
 print(f"Processed file saved as {output_csv_file_path}")
