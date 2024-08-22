@@ -44,21 +44,21 @@ class PoseEncoder(nn.Module):
         self.downsamplers = nn.ModuleList(downsamplers)
 
     def forward(self, hidden_states):
-        print(f"Input hidden_states shape: {hidden_states.shape}") 
+        #print(f"Input hidden_states shape: {hidden_states.shape}") 
         hidden_states = self.unshuffle(hidden_states)
-        print(f"Unshuffled hidden_states shape: {hidden_states.shape}")
+        #print(f"Unshuffled hidden_states shape: {hidden_states.shape}")
         
         hidden_states = self.conv_pre(hidden_states)
-        print(f"Pre-conv hidden_states shape: {hidden_states.shape}")  # Debugging line
+        #print(f"Pre-conv hidden_states shape: {hidden_states.shape}")  # Debugging line
 
         hidden_states = self.conv_in(hidden_states)
-        print(f"Convolved hidden_states shape: {hidden_states.shape}")  
+        #print(f"Convolved hidden_states shape: {hidden_states.shape}")  
         
         features = []
         for resnet, downsampler in zip(self.resnets, self.downsamplers):
             hidden_states = resnet(hidden_states, temb=None)
             features.append(hidden_states)
             hidden_states = downsampler(hidden_states)
-            print(f"Resnet output hidden_states shape: {hidden_states.shape}")  
+            #print(f"Resnet output hidden_states shape: {hidden_states.shape}")  
 
         return features
