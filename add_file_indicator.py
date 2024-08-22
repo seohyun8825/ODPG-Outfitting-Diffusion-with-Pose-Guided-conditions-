@@ -18,7 +18,6 @@ with open(input_csv_file_path, mode='r', newline='') as input_file:
         writer.writeheader()
 
         for row in reader:
-            writer.writerow(row)
             from_file = row['from']
             # Add '_masked' before the file extension
             from_file_masked = from_file.rsplit('.', 1)
