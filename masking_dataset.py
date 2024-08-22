@@ -42,10 +42,7 @@ def process_parsing_and_mask(base_path, csv_file, image_folder, num_samples=5):
     with open(csv_path, newline='') as csvfile:
         reader = csv.reader(csvfile)
         next(reader)  # 첫 줄(헤더) 건너뛰기
-        count = 0
         for row in reader:
-            if count >= num_samples:
-                break
             full_data = ''.join(row)
             name, keypoints_y, keypoints_x = parse_keypoints(full_data)
             if not name:
@@ -77,15 +74,17 @@ def process_parsing_and_mask(base_path, csv_file, image_folder, num_samples=5):
             # Create PIL Image from NumPy array
             overlay_image = Image.fromarray(overlay_np)
 
-            # Save overlay_image as PNG file
-            overlay_image.save(output_dir / f'{row}_masked.png')
+            file_name, file_extension = name.split('.')
 
-            mask.save(output_dir / f'{row}_masked.png')
+            # Save overlay_image as PNG file
+            overlay_image.save(output_dir / f'{file_name}_masked.{file_extension}')
+
+            # mask.save(output_dir / f'{row}_masked.png')
             # parsed_image.save(output_dir / f'parsed_image_{count}.png')
 
             print(f"Processed and saved images for {name}")
-            count += 1
 
 if __name__ == "__main__":
     base_path = Path('/home/user/Desktop/CFLD/CFLD/')
-    process_parsing_and_mask(base_path, 'fashion/fashion-resize-annotation-train.csv', 'fashion/train_highres')
+    # process_parsing_and_mask(base_path, 'fashion/fashion-resize-annotation-train.csv', 'fashion/train_highres')
+    process_parsing_and_mask(base_path, 'fashion/fashion-resize-annotation-test.csv', 'fashion/test_highres')
