@@ -590,21 +590,27 @@ class SwinTransformer(nn.Module):
 
     def forward_features(self, x, mask=None):
         x = self.patch_embed(x)
+
+        
         if self.mask and mask is not None:
             x = self.mask_model(x, mask)
         x = x.flatten(2).transpose(1, 2)
+
+        
 
         if self.ape:
             x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
 
+        
         features = []
         for layer in self.layers:
+            
             x, feature = layer(x)
             features.append(feature)
-
-        x = self.norm(x)  # B L C
-        x = self.avgpool(x.transpose(1, 2))  # B C 1
+                
+        x = self.norm(x) # B L C
+        x = self.avgpool(x.transpose(1, 2))  # B C 1        
         x = torch.flatten(x, 1)
         return x, features
 

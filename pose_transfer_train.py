@@ -98,12 +98,13 @@ class build_model(nn.Module):
                 transforms.Resize((256, 256), interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
         ])
         mask = batched_inputs["mask"] if "mask" in batched_inputs else None
+               
         x1, features1 = self.backbone(batched_inputs["img_cond"], mask=mask)
-        img_garment = transform_gt(batched_inputs["img_garment"])
-        x2, features2 = self.backbone(img_garment, mask=mask)
+        batched_inputs['img_garment'] = transform_gt(batched_inputs["img_garment"])
+        x2, features2 = self.backbone(batched_inputs['img_garment'], mask=mask)
         up_block_additional_residuals = self.appearance_encoder(features1)
-
         bsz = x1.shape[0]
+
         if self.training:
             bsz = bsz * 2
             down_block_additional_residuals = self.pose_encoder(torch.cat([batched_inputs["pose_img_src"], batched_inputs["pose_img_tgt"]]))
@@ -129,7 +130,6 @@ class build_model(nn.Module):
 
         return c, down_block_additional_residuals, up_block_additional_residuals
 
-
 def main(cfg):
     project_dir = os.path.join("outputs", cfg.ACCELERATE.PROJECT_NAME)
     run_dir = os.path.join(project_dir, cfg.ACCELERATE.RUN_NAME)
@@ -152,7 +152,7 @@ def main(cfg):
         accelerator.trackers.append(TensorBoardTracker(cfg.ACCELERATE.RUN_NAME, project_dir))
 
         with open(os.path.join(run_dir, "config.yaml"), "w") as f:
-            f.write(cfg.dump())
+           f.write(cfg.dump())
     accelerator.wait_for_everyone()
 
     fmt = "[%(asctime)s %(filename)s:%(lineno)s] %(message)s"
@@ -282,6 +282,7 @@ def main(cfg):
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
                 bsz = latents.shape[0]
+               
 
                 if cfg.MODEL.SCHEDULER_CONFIG.CUBIC_SAMPLING:
                     # Cubic sampling to sample a random timestep for each image
@@ -346,7 +347,7 @@ def main(cfg):
                     f"Eta {datetime.timedelta(seconds=int(etas))}")
 
         logger.info(f"epoch {epoch + 1} finished, running time {datetime.timedelta(seconds=int(time.time() - epoch_time))}")
-        save_dir = os.path.join(run_dir, f"epochs_{(epoch+1):03d}")
+        save_dir = os.path.join(run_dir, f"epoch_{(epoch+1):03d}")
 
         if (epoch + 1) % cfg.ACCELERATE.EVAL_PERIOD == 0:
             accelerator.save_state(os.path.join(save_dir, "checkpoints"))
