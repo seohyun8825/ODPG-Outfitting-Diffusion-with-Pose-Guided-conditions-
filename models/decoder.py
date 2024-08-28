@@ -159,7 +159,7 @@ class Decoder(nn.Module):
                 kv_pos_embed = self.kv_pos_embed.expand(B, -1, -1)
                 encoder_hidden_states = encoder_hidden_states + kv_pos_embed
                 # Reduce unnecessary channel of encoder_hidden_states
-                encoder_hidden_states = encoder_hidden_states[:1]
+                #encoder_hidden_states = encoder_hidden_states[:1]
                 #print(f"reduced channel of encoder_hidden_states : {encoder_hidden_states.shape}")
 
             if self.pose_query:
@@ -167,6 +167,7 @@ class Decoder(nn.Module):
                 if self.training:
                     hidden_states = hidden_states.reshape(B*2, self.pose_channel, -1).permute(0, 2, 1)
                     pos_embed = self.pos_embed.expand(B*2, -1, -1)
+                    encoder_hidden_states = torch.cat([encoder_hidden_states, encoder_hidden_states])
                 else:
                     hidden_states = hidden_states.reshape(B, self.pose_channel, -1).permute(0, 2, 1)
                     pos_embed = self.pos_embed.expand(B, -1, -1)
