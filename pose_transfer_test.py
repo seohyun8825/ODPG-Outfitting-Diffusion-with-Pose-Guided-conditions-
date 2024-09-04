@@ -110,16 +110,51 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
                 c, down_block_additional_residuals, up_block_additional_residuals)
 
             # log one-batch sampling results for visualization
-            if i % 100 == 0:
+            if i % 1  == 0:
                 src_imgs = test_batch["img_src"] * 0.5 + 0.5
                 tgt_imgs = test_batch["img_tgt"] * 0.5 + 0.5
                 gmt_imgs = test_batch["img_garment"] * 0.5 + 0.5
+                
+
+               
+
+                pose_img_tgt = test_batch["pose_img_tgt"][:, :3, :, :]
+                
+                pose_img_tgt = pose_img_tgt.squeeze(0).cpu().numpy().transpose(1,2,0)
+              
+                print(f"pose_img_tgt shape: {pose_img_tgt.shape}")
+
+                pose_img_tgt = pose_img_tgt * 0.5 + 0.5
+                pose_img_tgt = pose_img_tgt.astype(np.uint8)
+                img = Image.fromarray(pose_img_tgt)
+                img.save(os.path.join(save_dir, f"pose_image_{i}.jpg"))
+
+
+                '''
+                pose_img_tgt_5d = pose_img_tgt.unsqueeze(0)
+                pose_img_tgt_image = postprocess_image(pose_img_tgt_5d, nrow=pose_img_tgt.shape[0])
+                pose_img_tgt_image.save(os.path.join(save_dir, f"pose_image_{i}.jpg"))
+                '''
+
+
                 pose_imgs = F.interpolate(test_batch["pose_img_tgt"][:, :3, :, :],
                                           tuple(test_batch["img_src"].shape[2:]),
-                                          mode="bicubic", antialias=True)
+                                          mode="bicubic", antialias=True)           
                 save_img = torch.stack([src_imgs, pose_imgs, gmt_imgs, tgt_imgs, sampling_imgs])
                 save_img = postprocess_image(save_img, nrow=save_img.shape[0]*2)
                 save_img.save(os.path.join(save_dir, f"image_{i}.jpg"))
+                
+
+            print(f'test_batch["img_src"] shape: {test_batch["img_src"].shape}')
+            print(f'test_batch["img_tgt"] shape: {test_batch["img_tgt"].shape}')
+            print(f'test_batch["img_garment"] shape: {test_batch["img_garment"].shape}')
+            print(f'test_batch["pose_img_tgt"] shape: {test_batch["pose_img_tgt"].shape}')
+
+
+            print(f'src_imgs shape: {src_imgs.shape}')
+            print(f'tgt_imgs shape: {tgt_imgs.shape}')
+            print(f'gmt_imgs shape: {gmt_imgs.shape}')
+            print(f'pose_imgs shape: {pose_imgs.shape}')
 
             sampling_imgs = F.interpolate(sampling_imgs, tuple(gt_imgs.shape[2:]), mode="bicubic", antialias=True)
             sampling_imgs = sampling_imgs.float() * 255.0
@@ -467,12 +502,12 @@ def main(cfg):
     unet = UNet(cfg)
     metric = build_metric().to(accelerator.device)
 
-    logger.info(model.load_state_dict(torch.load(
-        os.path.join(cfg.MODEL.PRETRAINED_PATH, "pytorch_model.bin"), map_location="cpu"
-    ), strict=False))
-    logger.info(unet.load_state_dict(torch.load(
-        os.path.join(cfg.MODEL.PRETRAINED_PATH, "pytorch_model_1.bin"), map_location="cpu"
-    ), strict=False))
+    #logger.info(model.load_state_dict(torch.load(
+    #    os.path.join(cfg.MODEL.PRETRAINED_PATH, "pytorch_model.bin"), map_location="cpu"
+    #), strict=False))
+    #logger.info(unet.load_state_dict(torch.load(
+    #    os.path.join(cfg.MODEL.PRETRAINED_PATH, "pytorch_model_1.bin"), map_location="cpu"
+    #), strict=False))
 
     logger.info("preparing accelerator...")
     model, unet, test_loader, fid_real_loader = accelerator.prepare(model, unet, test_loader, fid_real_loader)

@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 from diffusers.models.attention import BasicTransformerBlock
 
-
 class AppearanceEncoder(nn.Module):
     def __init__(self, attn_residual_block_idx, inner_dims, ctx_dims, embed_dims, heads, depth,
                  to_self_attn, to_queries, to_keys, to_values, aspect_ratio, detach_input,
@@ -60,44 +59,59 @@ class AppearanceEncoder(nn.Module):
             if isinstance(module, torch.nn.Module):
                 fn_recursive_set_mem_eff(module)
 
-    def forward(self, features):
+    def forward(self, features, garment_features):
         additional_residuals = {}
 
         for i, block in enumerate(self.blocks):
             hidden_states = features[0]
+            garment_hidden_states = garment_features[0]
             if self.detach_input:
                 hidden_states = hidden_states.detach()
+                garment_hidden_states = garment_hidden_states.detach()
 
             in_H = in_W = int(features[0].shape[1] ** 0.5)
             hidden_states = features[0].permute(0, 2, 1).reshape(-1, self.inner_dims[i], in_H, in_W)
             hidden_states = self.zero_conv_ins[i](hidden_states)
+            
+            garment_hidden_states = garment_features[0].permute(0, 2, 1).reshape(-1, self.inner_dims[i], in_H, in_W)
+            garment_hidden_states = self.zero_conv_ins[i](garment_hidden_states)
+
             H = W = hidden_states.shape[2]
             hidden_states = hidden_states.reshape(-1, self.embed_dims[i], H * W).permute(0, 2, 1)
+            garment_hidden_states = garment_hidden_states.reshape(-1, self.embed_dims[i], H * W).permute(0, 2, 1)
 
             hidden_states = block(hidden_states)
+            garment_hidden_states = block(garment_hidden_states)
 
             hidden_states = hidden_states.permute(0, 2, 1).reshape(-1, self.embed_dims[i], H, W)
             hidden_states = self.zero_conv_outs[i](hidden_states)
             hidden_states = hidden_states.reshape(-1, self.ctx_dims[i], H * W).permute(0, 2, 1)
 
+            garment_hidden_states = garment_hidden_states.permute(0, 2, 1).reshape(-1, self.embed_dims[i], H, W)
+            garment_hidden_states = self.zero_conv_outs[i](garment_hidden_states)
+            garment_hidden_states = garment_hidden_states.reshape(-1, self.ctx_dims[i], H * W).permute(0, 2, 1)
+
+            combined_hidden_states = hidden_states + garment_hidden_states
+
             if self.to_self_attn:
                 if self.to_queries:
-                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_self_attn_q"] = hidden_states
+                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_self_attn_q"] = combined_hidden_states
                 elif self.to_keys:
-                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_self_attn_k"] = hidden_states
+                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_self_attn_k"] = combined_hidden_states
                 elif self.to_values:
-                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_self_attn_v"] = hidden_states
+                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_self_attn_v"] = combined_hidden_states
             else:
                 if self.to_keys and self.to_values:
-                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_c"] = hidden_states
+                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_c"] = combined_hidden_states
                 elif self.to_queries:
-                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_q"] = hidden_states
+                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_q"] = combined_hidden_states
                 elif self.to_keys:
-                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_k"] = hidden_states
+                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_k"] = combined_hidden_states
                 elif self.to_values:
-                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_v"] = hidden_states
+                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_v"] = combined_hidden_states
 
             if i != len(self.blocks) - 1 and self.inner_dims[i] != self.inner_dims[i + 1]:
                 features.pop(0)
+                garment_features.pop(0)
 
         return additional_residuals
