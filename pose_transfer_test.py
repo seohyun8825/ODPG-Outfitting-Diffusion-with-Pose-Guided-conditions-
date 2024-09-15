@@ -75,10 +75,13 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
         batch_time = AverageMeter()
 
         for i, test_batch in enumerate(test_loader):
+            if i >= 10:  
+                break
+
             gt_imgs = test_batch["img_gt"]
             img_size = test_batch["img_tgt"].shape[2:]
             bsz = gt_imgs.shape[0]
-
+            
             if cfg.TEST.DDIM_INVERSION_STEPS > 0:
                 if cfg.TEST.DDIM_INVERSION_DOWN_BLOCK_GUIDANCE:
                     c, down_block_additional_residuals, up_block_additional_residuals = model({
