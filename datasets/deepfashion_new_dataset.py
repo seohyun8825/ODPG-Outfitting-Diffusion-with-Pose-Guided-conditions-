@@ -272,14 +272,14 @@ class PisTestDeepFashion(Dataset):
         ])
         self.transform_cond = transforms.Compose([
             transforms.Resize((256, 256), interpolation=transforms.InterpolationMode.BICUBIC),
-            transforms.Pad(padding=(32, 0, 32, 0), fill=0),  # 동일한 패딩 적용
+            #transforms.Pad(padding=(32, 0, 32, 0), fill=0),  # 동일한 패딩 적용
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
         self.transform_test = transforms.Compose([
             transforms.Resize(test_img_size, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
-            transforms.Pad(padding=padding, fill=0),
+            #transforms.Pad(padding=padding, fill=0),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
@@ -365,6 +365,13 @@ class PisTestDeepFashion(Dataset):
 
         # Generate masked image for img_tgt
         #masked_img_tgt = img_tgt * (1 - mask_tgt)
+        #print(f"img_src size: {img_src.shape}") 
+        #print(f"img_tgt size: {img_tgt.shape}")
+        #print(f"img_gt size: {img_gt.shape}")
+        #print(f"img_cond_from size: {img_cond_from.shape}")
+        #print(f"img_garment size: {img_garment.shape}")
+        #print(f"pose_img_src size: {pose_img_from.shape}")
+        #print(f"pose_img_tgt size: {pose_img_to.shape}")
 
 
         return {
