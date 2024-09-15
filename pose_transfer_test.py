@@ -69,14 +69,17 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
     psnr_gathered = []
     ssim_gathered = []
     ssim_256_gathered = []
-
+    total_samples = 0
     with torch.no_grad():
         end_time = time.time()
         batch_time = AverageMeter()
 
         for i, test_batch in enumerate(test_loader):
-            if i >= 10:  
+            if i > 19:  
                 break
+
+            # print(f"Sampling Batch size: {len(test_batch.keys())}")
+
 
             gt_imgs = test_batch["img_gt"]
             img_size = test_batch["img_tgt"].shape[2:]
@@ -113,7 +116,7 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
                 c, down_block_additional_residuals, up_block_additional_residuals)
 
             # log one-batch sampling results for visualization
-            if i % 1  == 0:
+            if i % 10  == 0:
                 src_imgs = test_batch["img_src"] * 0.5 + 0.5
                 tgt_imgs = test_batch["img_tgt"] * 0.5 + 0.5
                 gmt_imgs = test_batch["img_garment"] * 0.5 + 0.5
@@ -123,10 +126,12 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
 
                 pose_img_tgt = test_batch["pose_img_tgt"][:, :3, :, :]
                 
+
+
+                #print(f"pose_img_tgt shape: {pose_img_tgt.shape}")
+
                 pose_img_tgt = pose_img_tgt.squeeze(0).cpu().numpy().transpose(1,2,0)
               
-                print(f"pose_img_tgt shape: {pose_img_tgt.shape}")
-
                 pose_img_tgt = pose_img_tgt * 0.5 + 0.5
                 pose_img_tgt = pose_img_tgt.astype(np.uint8)
                 img = Image.fromarray(pose_img_tgt)
@@ -186,6 +191,11 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
         end_time = time.time()
         batch_time = AverageMeter()
         for i, fid_real_imgs in enumerate(fid_real_loader):
+
+            if i>19:
+                break
+            # print(f"Metric Batch size: {len(test_batch.keys())}")
+
             gt_out = metric(fid_real_imgs)
             gt_out_gathered.append(accelerator.gather_for_metrics(gt_out).cpu().numpy())
 
@@ -207,9 +217,12 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
             ssim_gathered = np.concatenate(ssim_gathered, axis=0)
             ssim_256_gathered = np.concatenate(ssim_256_gathered, axis=0)
             if os.environ.get("WANDB_MODE", None) != "offline":
-                assert len(gt_out_gathered) == len(fid_real_data)
+                print(f"gt_out_gathered: {len(gt_out_gathered)}")
+                print(f"fid_real_data: {len(fid_real_data)}")
+                assert len(gt_out_gathered) == min(20, len(fid_real_data))
                 assert len(pred_out_gathered) == len(lpips_gathered) == len(psnr_gathered) == \
-                    len(ssim_gathered) == len(ssim_256_gathered) == len(test_data)
+                    len(ssim_gathered) == len(ssim_256_gathered) == min(20, len(test_data))
+
 
             mu1 = np.mean(gt_out_gathered, axis=0)
             sigma1 = np.cov(gt_out_gathered, rowvar=False)
