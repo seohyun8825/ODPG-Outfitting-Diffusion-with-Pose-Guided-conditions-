@@ -91,11 +91,12 @@ class AppearanceEncoder(nn.Module):
             garment_hidden_states = self.zero_conv_outs[i](garment_hidden_states)
             garment_hidden_states = garment_hidden_states.reshape(-1, self.ctx_dims[i], H * W).permute(0, 2, 1)
 
-            combined_hidden_states = hidden_states + garment_hidden_states
+            combined_hidden_states = hidden_states + hidden_states
 
             if self.to_self_attn:
                 if self.to_queries:
                     additional_residuals[f"block_{self.attn_residual_block_idx[i]}_self_attn_q"] = combined_hidden_states
+                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_self_attn_v"] = combined_hidden_states
                 elif self.to_keys:
                     additional_residuals[f"block_{self.attn_residual_block_idx[i]}_self_attn_k"] = combined_hidden_states
                 elif self.to_values:
@@ -105,6 +106,8 @@ class AppearanceEncoder(nn.Module):
                     additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_c"] = combined_hidden_states
                 elif self.to_queries:
                     additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_q"] = combined_hidden_states
+                    additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_q"] *= 1.2
+                    print("reflected")
                 elif self.to_keys:
                     additional_residuals[f"block_{self.attn_residual_block_idx[i]}_cross_attn_k"] = combined_hidden_states
                 elif self.to_values:

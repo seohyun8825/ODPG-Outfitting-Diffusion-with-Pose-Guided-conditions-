@@ -163,9 +163,9 @@
     "vision_config_dict": {
       "hidden_size": 1024,
       "intermediate_size": 4096,
-      "num_attention_heads": 16,
+      "num_attention_heads": 14,
       "num_hidden_layers": 24,
-      "patch_size": 14,
+      "patch_size": 16,
       "projection_dim": 768
     }
   }

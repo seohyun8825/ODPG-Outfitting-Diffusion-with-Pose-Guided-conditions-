@@ -102,6 +102,7 @@ class build_model(nn.Module):
         img_garment = transform_gt(batched_inputs["img_garment"])
         x2, features2 = self.backbone(img_garment, mask=mask)
         up_block_additional_residuals = self.appearance_encoder(features1, features2)
+        #print(up_block_additional_residuals.items())
 
         bsz = x1.shape[0]
         if self.training:
@@ -115,6 +116,8 @@ class build_model(nn.Module):
             u_cond_prop = torch.rand(bsz, 1, 1)
             u_cond_prop = (u_cond_prop < self.u_cond_percent).to(dtype=x1.dtype, device=x1.device)
             c = self.learnable_vector.expand(bsz, -1, -1).to(dtype=x1.dtype) * u_cond_prop + c * (1 - u_cond_prop)
+            #up_block_additional_residuals = {k: 1.5 * v for k, v in up_block_additional_residuals.items()}
+            #print("Applied 2x to up_block_additional_residuals during training")
             if self.u_cond_down_block_guidance:
                 down_block_additional_residuals = [torch.zeros_like(sample) * u_cond_prop.unsqueeze(1) + \
                                                    sample * (1 - u_cond_prop.unsqueeze(1)) \
@@ -124,9 +127,22 @@ class build_model(nn.Module):
                                                  for k, v in up_block_additional_residuals.items()}
         else:
             down_block_additional_residuals = self.pose_encoder(batched_inputs["pose_img"])
-            c = self.decoder(x2, features2, down_block_additional_residuals)
-            c = torch.cat([self.learnable_vector.expand(bsz, -1, -1).to(dtype=x1.dtype), c], dim=0)
+            print(f"down_block_additional_residuals before decoder:")
+            for i, residual in enumerate(down_block_additional_residuals):
+                print(f"Shape of residual {i}: {residual.shape}")
 
+            print(f"x2 shape before decoder : {x2.shape} ")
+            print("features2 shapes before decoder:")
+            for i, feature in enumerate(features2):
+                print(f"Shape of feature {i}: {feature.shape}")
+
+            c = self.decoder(x2, features2, down_block_additional_residuals)
+            print(f"shape of c after decoder : {c.shape}")
+
+            c = torch.cat([self.learnable_vector.expand(bsz, -1, -1).to(dtype=x1.dtype), c], dim=0)
+            
+            #up_block_additional_residuals = {k: 1.5* v for k, v in up_block_additional_residuals.items()}
+            #print("Applied 2x to up_block_additional_residuals during testing")
         return c, down_block_additional_residuals, up_block_additional_residuals
 
 

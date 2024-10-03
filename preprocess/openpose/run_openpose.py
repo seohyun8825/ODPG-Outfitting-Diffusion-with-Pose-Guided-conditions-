@@ -33,24 +33,21 @@ class OpenPose:
         torch.cuda.set_device(gpu_id)
         self.preprocessor = OpenposeDetector()
 
-    def __call__(self, input_image, resolution=384):
+    def __call__(self, input_image):
         torch.cuda.set_device(self.gpu_id)
         if isinstance(input_image, Image.Image):
-            # Resize the image to maintain the aspect ratio
-            input_image = input_image.resize((resolution, int(input_image.height * resolution / input_image.width)) if input_image.width > input_image.height else (int(input_image.width * resolution / input_image.height), resolution))
             input_image = np.asarray(input_image)
         else:
             raise ValueError("Unsupported image type")
         
         with torch.no_grad():
             input_image = HWC3(input_image)
-            input_image = resize_image(input_image, resolution)
             H, W, C = input_image.shape
             pose, detected_map = self.preprocessor(input_image, hand_and_face=False)
 
-            # Handle the case where no bodies are detected
+
             if not pose['bodies']['subset']:
-                return {"pose_keypoints_2d": [[-1, -1] for _ in range(18)]}  # Return default keypoints
+                return {"pose_keypoints_2d": [[-1, -1] for _ in range(18)]}
 
             candidate = pose['bodies']['candidate']
             subset = pose['bodies']['subset'][0][:18]
@@ -91,8 +88,8 @@ def process_images_and_save(lst_file, image_folder, output_csv):
                 continue
             keypoints = model(image) 
             if keypoints:
-                keypoints_y = '[' + ', '.join(map(str, [int(kp[1]) for kp in keypoints["pose_keypoints_2d"] if kp[1] != -1] + [-1 for kp in keypoints["pose_keypoints_2d"] if kp[1] == -1])) + ']'
-                keypoints_x = '[' + ', '.join(map(str, [int(kp[0]) for kp in keypoints["pose_keypoints_2d"] if kp[0] != -1] + [-1 for kp in keypoints["pose_keypoints_2d"] if kp[0] == -1])) + ']'
+                keypoints_y = '[' + ', '.join(map(str, [int(kp[1]) for kp in keypoints["pose_keypoints_2d"]])) + ']'
+                keypoints_x = '[' + ', '.join(map(str, [int(kp[0]) for kp in keypoints["pose_keypoints_2d"]])) + ']'
             else:
                 keypoints_y = keypoints_x = '[' + ', '.join(['-1'] * 18) + ']'
             
@@ -103,5 +100,5 @@ def process_images_and_save(lst_file, image_folder, output_csv):
 
 if __name__ == '__main__':
     base_path = Path(__file__).resolve().parents[2] / 'fashion'
-    process_images_and_save(base_path / 'test.lst', base_path / 'test_highres', 'annotation-test.csv')
-    process_images_and_save(base_path / 'train.lst', base_path / 'train_highres', 'annotation-train.csv')
+    process_images_and_save(base_path / 'new_test.lst', base_path / 'test', 'annotation-new-test_.csv')
+    process_images_and_save(base_path / 'new_train.lst', base_path / 'train', 'annotation-new-train_.csv')

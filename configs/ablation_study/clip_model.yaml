@@ -17,7 +17,7 @@ MODEL:
     CONVIN_PADDING: []
 
   DECODER_CONFIG:
-    N_CTX: 1
+    N_CTX: 16
     DEPTH: 0
 
 INPUT:

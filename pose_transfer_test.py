@@ -69,16 +69,23 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
     psnr_gathered = []
     ssim_gathered = []
     ssim_256_gathered = []
-
+    total_samples = 0
+    #CrossAttnFirstTransformerBlock.sample_counter = 0
     with torch.no_grad():
         end_time = time.time()
         batch_time = AverageMeter()
 
         for i, test_batch in enumerate(test_loader):
+            if i > 19:  
+                break
+
+            # print(f"Sampling Batch size: {len(test_batch.keys())}")
+
+
             gt_imgs = test_batch["img_gt"]
             img_size = test_batch["img_tgt"].shape[2:]
             bsz = gt_imgs.shape[0]
-
+            
             if cfg.TEST.DDIM_INVERSION_STEPS > 0:
                 if cfg.TEST.DDIM_INVERSION_DOWN_BLOCK_GUIDANCE:
                     c, down_block_additional_residuals, up_block_additional_residuals = model({
@@ -110,7 +117,7 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
                 c, down_block_additional_residuals, up_block_additional_residuals)
 
             # log one-batch sampling results for visualization
-            if i % 1  == 0:
+            if i % 2  == 0:
                 src_imgs = test_batch["img_src"] * 0.5 + 0.5
                 tgt_imgs = test_batch["img_tgt"] * 0.5 + 0.5
                 gmt_imgs = test_batch["img_garment"] * 0.5 + 0.5
@@ -120,10 +127,12 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
 
                 pose_img_tgt = test_batch["pose_img_tgt"][:, :3, :, :]
                 
+
+
+                #print(f"pose_img_tgt shape: {pose_img_tgt.shape}")
+
                 pose_img_tgt = pose_img_tgt.squeeze(0).cpu().numpy().transpose(1,2,0)
               
-                print(f"pose_img_tgt shape: {pose_img_tgt.shape}")
-
                 pose_img_tgt = pose_img_tgt * 0.5 + 0.5
                 pose_img_tgt = pose_img_tgt.astype(np.uint8)
                 img = Image.fromarray(pose_img_tgt)
@@ -145,16 +154,16 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
                 save_img.save(os.path.join(save_dir, f"image_{i}.jpg"))
                 
 
-            print(f'test_batch["img_src"] shape: {test_batch["img_src"].shape}')
-            print(f'test_batch["img_tgt"] shape: {test_batch["img_tgt"].shape}')
-            print(f'test_batch["img_garment"] shape: {test_batch["img_garment"].shape}')
-            print(f'test_batch["pose_img_tgt"] shape: {test_batch["pose_img_tgt"].shape}')
+            #print(f'test_batch["img_src"] shape: {test_batch["img_src"].shape}')
+            #print(f'test_batch["img_tgt"] shape: {test_batch["img_tgt"].shape}')
+            #print(f'test_batch["img_garment"] shape: {test_batch["img_garment"].shape}')
+            #print(f'test_batch["pose_img_tgt"] shape: {test_batch["pose_img_tgt"].shape}')
 
 
-            print(f'src_imgs shape: {src_imgs.shape}')
-            print(f'tgt_imgs shape: {tgt_imgs.shape}')
-            print(f'gmt_imgs shape: {gmt_imgs.shape}')
-            print(f'pose_imgs shape: {pose_imgs.shape}')
+            #print(f'src_imgs shape: {src_imgs.shape}')
+            #print(f'tgt_imgs shape: {tgt_imgs.shape}')
+            #print(f'gmt_imgs shape: {gmt_imgs.shape}')
+            #print(f'pose_imgs shape: {pose_imgs.shape}')
 
             sampling_imgs = F.interpolate(sampling_imgs, tuple(gt_imgs.shape[2:]), mode="bicubic", antialias=True)
             sampling_imgs = sampling_imgs.float() * 255.0
@@ -183,6 +192,11 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
         end_time = time.time()
         batch_time = AverageMeter()
         for i, fid_real_imgs in enumerate(fid_real_loader):
+
+            if i>19:
+                break
+            # print(f"Metric Batch size: {len(test_batch.keys())}")
+
             gt_out = metric(fid_real_imgs)
             gt_out_gathered.append(accelerator.gather_for_metrics(gt_out).cpu().numpy())
 
@@ -204,9 +218,12 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
             ssim_gathered = np.concatenate(ssim_gathered, axis=0)
             ssim_256_gathered = np.concatenate(ssim_256_gathered, axis=0)
             if os.environ.get("WANDB_MODE", None) != "offline":
-                assert len(gt_out_gathered) == len(fid_real_data)
+                print(f"gt_out_gathered: {len(gt_out_gathered)}")
+                print(f"fid_real_data: {len(fid_real_data)}")
+                assert len(gt_out_gathered) == min(20, len(fid_real_data))
                 assert len(pred_out_gathered) == len(lpips_gathered) == len(psnr_gathered) == \
-                    len(ssim_gathered) == len(ssim_256_gathered) == len(test_data)
+                    len(ssim_gathered) == len(ssim_256_gathered) == min(20, len(test_data))
+
 
             mu1 = np.mean(gt_out_gathered, axis=0)
             sigma1 = np.cov(gt_out_gathered, rowvar=False)
@@ -502,12 +519,12 @@ def main(cfg):
     unet = UNet(cfg)
     metric = build_metric().to(accelerator.device)
 
-    #logger.info(model.load_state_dict(torch.load(
-    #    os.path.join(cfg.MODEL.PRETRAINED_PATH, "pytorch_model.bin"), map_location="cpu"
-    #), strict=False))
-    #logger.info(unet.load_state_dict(torch.load(
-    #    os.path.join(cfg.MODEL.PRETRAINED_PATH, "pytorch_model_1.bin"), map_location="cpu"
-    #), strict=False))
+    logger.info(model.load_state_dict(torch.load(
+        os.path.join(cfg.MODEL.PRETRAINED_PATH, "pytorch_model.bin"), map_location="cpu"
+    ), strict=False))
+    logger.info(unet.load_state_dict(torch.load(
+        os.path.join(cfg.MODEL.PRETRAINED_PATH, "pytorch_model_1.bin"), map_location="cpu"
+    ), strict=False))
 
     logger.info("preparing accelerator...")
     model, unet, test_loader, fid_real_loader = accelerator.prepare(model, unet, test_loader, fid_real_loader)

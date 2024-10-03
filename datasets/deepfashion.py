@@ -13,6 +13,8 @@ from torch.utils.data import Dataset
 from pathlib import Path
 import cv2
 import re
+
+
 import matplotlib.pyplot as plt
 sys.path.append('/home/user/Desktop/CFLD/CFLD/')
 
@@ -45,8 +47,9 @@ class PisTrainDeepFashion(Dataset):
         self.pred_ratio_var = pred_ratio_var
         self.psz = psz
 
-        train_dir = os.path.join(root_dir, "train_highres")
-        train_pairs_path = os.path.join(root_dir, "fashion-resize-pairs-train.csv")
+
+        train_dir = os.path.join(root_dir, "train")
+        train_pairs_path = os.path.join(root_dir, "new-fashion-resize-pairs-train.csv")
 
         if not os.path.exists(train_pairs_path):
             print(f"File does not exist: {train_pairs_path}")
@@ -54,23 +57,28 @@ class PisTrainDeepFashion(Dataset):
             train_pairs = pd.read_csv(train_pairs_path)
 
         self.img_items = self.process_dir(root_dir, train_pairs)
-        self.annotation_file = pd.read_csv(os.path.join(root_dir, "fashion-resize-annotation-train.csv"), sep=':')
+        self.annotation_file = pd.read_csv(os.path.join(root_dir, "annotation-new-train_.csv"), sep=':')
         self.annotation_file = self.annotation_file.set_index('name')
-
+        padding = (32, 0, 32, 0)
         self.transform_gt = transforms.Compose([
-            transforms.Resize(gt_img_size, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.Resize((512, 512), interpolation=transforms.InterpolationMode.BICUBIC),
+            #transforms.Pad(padding=(32, 0, 32, 0), fill=0),  # 동일한 패딩 적용
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
         self.transform_gt_pose = transforms.Compose([
+            transforms.Resize(gt_img_size, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.Pad(padding=padding, fill=0),
             transforms.ToTensor(),
         ])
+
         self.transform_cond = transforms.Compose([
-            transforms.Resize(cond_img_size, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.Resize((256, 256), interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.Pad(padding=(32, 0, 32, 0), fill=0),  # 동일한 패딩 적용
+            transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
-
         aspect_ratio = cond_img_size[1] / cond_img_size[0]
         self.transform = transforms.Compose([
             transforms.RandomResizedCrop(cond_img_size, scale=(min_scale, 1.), ratio=(aspect_ratio * 3./4., aspect_ratio * 4./3.),
@@ -89,9 +97,9 @@ class PisTrainDeepFashion(Dataset):
         data = []
         for i in range(len(csv_file)):
             data.append((
-                os.path.join(root_dir, "train_highres", csv_file.iloc[i]["from"]),
-                os.path.join(root_dir, "train_highres", csv_file.iloc[i]["to"]),
-                os.path.join(root_dir, "train_garment_highres", csv_file.iloc[i]["garment"])
+                os.path.join(root_dir, "train", csv_file.iloc[i]["from"]),
+                os.path.join(root_dir, "train", csv_file.iloc[i]["to"]),
+                os.path.join(root_dir, "train", csv_file.iloc[i]["garment"])
             ))
         return data
 
@@ -116,8 +124,8 @@ class PisTrainDeepFashion(Dataset):
         with open(img_path_garment, 'rb') as f:
             img_garment = Image.open(f).convert('RGB')
 
-        original_size_from = (384, 384)
-        original_size_to = (384, 384)
+        original_size_from = (192, 256)
+        original_size_to = (192, 256)
 
         img_src = self.transform_gt(img_from)
         img_tgt = self.transform_gt(img_to)
@@ -152,7 +160,12 @@ class PisTrainDeepFashion(Dataset):
 
         # Generate masked image for img_tgt
         #masked_img_tgt = img_tgt * (1 - mask_tgt)
-
+        #print(f"img_src shape: {img_src.shape}")
+        #print(f"img_tgt shape: {img_tgt.shape}")
+        #print(f"img_cond shape: {img_cond.shape}")
+        #print(f"pose_img_src shape: {pose_img_src.shape}")
+        #print(f"pose_img_tgt shape: {pose_img_tgt.shape}")
+        #print(f"garment shape: {img_garment.shape}")
         return_dict = {
             "img_src": img_src,
             "img_tgt": img_tgt,
@@ -178,12 +191,15 @@ class PisTrainDeepFashion(Dataset):
             (target_height - height + 1) // 2
         )
         return ImageOps.expand(img, padding)
-
     def build_pose_img(self, img_path, original_size, transform):
         img = Image.open(img_path).convert('RGB')
-        transformed_img = transform(img)
-        transformed_size = (transformed_img.shape[2], transformed_img.shape[1])
+        
+        # 원본 이미지 크기 설정 (192x256)
+        original_width, original_height = 192, 256
+        
+        transformed_size = (192, 256)
 
+        # annotation 파일에서 키포인트 로드
         string = self.annotation_file.loc[os.path.basename(img_path)]
         keypoints = load_pose_cords_from_strings(string['keypoints_y'], string['keypoints_x'])
 
@@ -191,28 +207,34 @@ class PisTrainDeepFashion(Dataset):
             print("Warning: No valid keypoints for", img_path)
             return torch.zeros(20, self.pose_img_size[0], self.pose_img_size[1], dtype=torch.float32)
 
-        keypoints = transform_keypoints(keypoints, original_size, transformed_size)
+        # 키포인트의 x 좌표에 32를 더하여 좌우 패딩을 고려
+        keypoints[:, 1] += 32  # x 좌표에 32 픽셀 추가
 
-        pose_map = cords_to_map(keypoints, self.pose_img_size, transformed_size).transpose(2, 0, 1)
+        # 포즈 지도 생성
+        pose_map = cords_to_map(keypoints, self.pose_img_size, (256, 256)).transpose(2, 0, 1)
         pose_img = draw_pose_from_cords(keypoints, self.pose_img_size)
 
+        # 텐서로 변환
         pose_map_tensor = torch.tensor(pose_map, dtype=torch.float32)
         pose_img_tensor = torch.tensor(pose_img.transpose(2, 0, 1), dtype=torch.float32)
 
-        # Adjust number of channels in pose_map_tensor to be consistent
-        num_keypoints = 17  # Assume 17 keypoints for consistency
+        # 채널 수 맞추기 (17개 키포인트)
+        num_keypoints = 17
         if pose_map_tensor.shape[0] < num_keypoints:
             pad_size = num_keypoints - pose_map_tensor.shape[0]
             pose_map_tensor = torch.nn.functional.pad(pose_map_tensor, (0, 0, 0, 0, 0, pad_size))
         elif pose_map_tensor.shape[0] > num_keypoints:
             pose_map_tensor = pose_map_tensor[:num_keypoints, :, :]
 
-        # Resize pose_img_tensor to match self.pose_img_size
+        # 포즈 이미지 텐서 크기 조정
         pose_img_tensor = torch.nn.functional.interpolate(pose_img_tensor.unsqueeze(0), size=self.pose_img_size, mode='bilinear', align_corners=False).squeeze(0)
 
+        # 최종 결합된 포즈 이미지 반환
         combined_pose = torch.cat([pose_img_tensor, pose_map_tensor], dim=0)
 
         return combined_pose
+
+
 
     def load_keypoints(self, img_path):
         string = self.annotation_file.loc[os.path.basename(img_path)]
@@ -222,38 +244,44 @@ class PisTrainDeepFashion(Dataset):
             'pose_keypoints_2d': list(zip(keypoints_x, keypoints_y))
         }
         return keypoints
-
 class PisTestDeepFashion(Dataset):
     def __init__(self, root_dir, gt_img_size, pose_img_size, cond_img_size, test_img_size):
         super().__init__()
         self.pose_img_size = pose_img_size
         self.cond_img_size = cond_img_size
+        padding = (32, 0, 32, 0)
 
-        test_pairs_path = os.path.join(root_dir, "fashion-resize-pairs-test.csv")
+        test_pairs_path = os.path.join(root_dir, "new-fashion-resize-pairs-test.csv")
         if not os.path.exists(test_pairs_path):
             print(f"Test file does not exist: {test_pairs_path}")
         else:
             test_pairs = pd.read_csv(test_pairs_path)
 
         self.img_items = self.process_dir(root_dir, test_pairs)
-        self.annotation_file = pd.read_csv(os.path.join(root_dir, "fashion-resize-annotation-test.csv"), sep=':')
+        self.annotation_file = pd.read_csv(os.path.join(root_dir, "annotation-new-test_.csv"), sep=':')
         self.annotation_file = self.annotation_file.set_index('name')
 
         self.transform_gt = transforms.Compose([
-            transforms.Resize(gt_img_size, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+            transforms.Resize((512, 512), interpolation=transforms.InterpolationMode.BICUBIC),
+            #transforms.Pad(padding=(32, 0, 32, 0), fill=0),  # 동일한 패딩 적용
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
         self.transform_gt_pose = transforms.Compose([
+            transforms.Resize(gt_img_size, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+            transforms.Pad(padding=padding, fill=0),
             transforms.ToTensor(),
         ])
         self.transform_cond = transforms.Compose([
-            transforms.Resize(cond_img_size, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+            transforms.Resize((256, 256), interpolation=transforms.InterpolationMode.BICUBIC),
+            #transforms.Pad(padding=(32, 0, 32, 0), fill=0),  # 동일한 패딩 적용
+            transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
         self.transform_test = transforms.Compose([
             transforms.Resize(test_img_size, interpolation=transforms.InterpolationMode.BICUBIC, antialias=True),
+            #transforms.Pad(padding=padding, fill=0),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
@@ -262,9 +290,9 @@ class PisTestDeepFashion(Dataset):
         data = []
         for i in range(len(csv_file)):
             data.append((
-                os.path.join(root_dir, "test_highres", csv_file.iloc[i]["from"]),
-                os.path.join(root_dir, "test_highres", csv_file.iloc[i]["to"]),
-                os.path.join(root_dir, "test_garment_highres", csv_file.iloc[i]["garment"])
+                os.path.join(root_dir, "test", csv_file.iloc[i]["from"]),
+                os.path.join(root_dir, "test", csv_file.iloc[i]["to"]),
+                os.path.join(root_dir, "test", csv_file.iloc[i]["garment"])
             ))
         return data
 
@@ -287,8 +315,8 @@ class PisTestDeepFashion(Dataset):
         print(f"Loading target image from: {img_path_to}")
         print(f"Loading random garment image from: {random_img_path_garment}")
 
-        original_size_from = (384, 384)
-        original_size_to = (384, 384)
+        original_size_from = (192, 256)
+        original_size_to = (192, 256)
 
         img_src = self.transform_gt(img_from)
         img_tgt = self.transform_gt(img_to)
@@ -339,6 +367,13 @@ class PisTestDeepFashion(Dataset):
 
         # Generate masked image for img_tgt
         #masked_img_tgt = img_tgt * (1 - mask_tgt)
+        #print(f"img_src size: {img_src.shape}") 
+        #print(f"img_tgt size: {img_tgt.shape}")
+        #print(f"img_gt size: {img_gt.shape}")
+        #print(f"img_cond_from size: {img_cond_from.shape}")
+        print(f"img_garment size: {img_garment.shape}")
+        #print(f"pose_img_src size: {pose_img_from.shape}")
+        #print(f"pose_img_tgt size: {pose_img_to.shape}")
 
 
         return {
@@ -367,52 +402,51 @@ class PisTestDeepFashion(Dataset):
             (target_height - height + 1) // 2
         )
         return ImageOps.expand(img, padding)
-
     def build_pose_img(self, img_path, original_size, transform):
-        logger.info(f"Opening image at path: {img_path}")
         img = Image.open(img_path).convert('RGB')
-        transformed_img = transform(img)
-        transformed_size = (transformed_img.shape[2], transformed_img.shape[1])
+        
+        # 원본 이미지 크기 설정 (192x256)
+        original_width, original_height = 192, 256
+        
+        transformed_size = (192, 256)
 
-        logger.info(f"Image transformed to size: {transformed_size}")
-
+        # annotation 파일에서 키포인트 로드
         string = self.annotation_file.loc[os.path.basename(img_path)]
         keypoints = load_pose_cords_from_strings(string['keypoints_y'], string['keypoints_x'])
 
         if keypoints.size == 0:
-            logger.warning(f"No valid keypoints for {img_path}")
+            print("Warning: No valid keypoints for", img_path)
             return torch.zeros(20, self.pose_img_size[0], self.pose_img_size[1], dtype=torch.float32)
 
-        #logger.info(f"Loaded keypoints: {keypoints}")
+        # 키포인트의 x 좌표에 32를 더하여 좌우 패딩을 고려
+        keypoints[:, 1] += 32  # x 좌표에 32 픽셀 추가
 
-        keypoints = transform_keypoints(keypoints, original_size, transformed_size)
-        #logger.info(f"Transformed keypoints to fit the image size: {transformed_size}")
-
-        pose_map = cords_to_map(keypoints, self.pose_img_size, transformed_size).transpose(2, 0, 1)
+        # 포즈 지도 생성
+        pose_map = cords_to_map(keypoints, self.pose_img_size, (256, 256)).transpose(2, 0, 1)
         pose_img = draw_pose_from_cords(keypoints, self.pose_img_size)
 
+        # 텐서로 변환
         pose_map_tensor = torch.tensor(pose_map, dtype=torch.float32)
         pose_img_tensor = torch.tensor(pose_img.transpose(2, 0, 1), dtype=torch.float32)
 
-        # Ensure the pose map tensor has the correct number of channels
-        num_keypoints = 17  # Standard number of keypoints
+        # 채널 수 맞추기 (17개 키포인트)
+        num_keypoints = 17
         if pose_map_tensor.shape[0] < num_keypoints:
             pad_size = num_keypoints - pose_map_tensor.shape[0]
             pose_map_tensor = torch.nn.functional.pad(pose_map_tensor, (0, 0, 0, 0, 0, pad_size))
         elif pose_map_tensor.shape[0] > num_keypoints:
             pose_map_tensor = pose_map_tensor[:num_keypoints, :, :]
 
-        #logger.info(f"Pose map tensor adjusted to have {num_keypoints} channels.")
-
-        # Resize pose image tensor to ensure size consistency across train and test datasets
+        # 포즈 이미지 텐서 크기 조정
         pose_img_tensor = torch.nn.functional.interpolate(pose_img_tensor.unsqueeze(0), size=self.pose_img_size, mode='bilinear', align_corners=False).squeeze(0)
-        logger.info(f"Pose image tensor resized to: {self.pose_img_size}")
 
+        # 최종 결합된 포즈 이미지 반환
         combined_pose = torch.cat([pose_img_tensor, pose_map_tensor], dim=0)
-        logger.info(f"Combined pose tensor shape: {combined_pose.shape}")
 
         return combined_pose
-    
+
+
+        
     def load_keypoints(self, img_path):
         string = self.annotation_file.loc[os.path.basename(img_path)]
         keypoints_y = list(map(int, re.findall(r'\d+', string['keypoints_y'])))
@@ -426,7 +460,7 @@ class FidRealDeepFashion(Dataset):
     def __init__(self, root_dir, test_img_size):
         super().__init__()
         # root_dir = os.path.join(root_dir, "DeepFashion")
-        train_dir = os.path.join(root_dir, "train_highres")
+        train_dir = os.path.join(root_dir, "train")
         self.img_items = self.process_dir(train_dir)
 
         self.transform_test = transforms.Compose([
@@ -499,8 +533,18 @@ def save_dataset_samples(dataset, num_samples=5, save_dir='samples', prefix='sam
         plt.close(fig)
 
 # Example usage
-#train_dataset = PisTrainDeepFashion(root_dir="/home/user/Desktop/CFLD/CFLD/fashion", gt_img_size=(256, 256), pose_img_size=(256, 256), cond_img_size=(128, 88), min_scale=0.8, log_aspect_ratio=(-0.2, 0.2), pred_ratio=[0.1], pred_ratio_var=[0.05], psz=16)
+train_dataset = PisTrainDeepFashion(
+    root_dir="/home/user/Desktop/CFLD/CFLD/fashion",
+    gt_img_size=(256, 256),
+    pose_img_size=(256, 256),
+    cond_img_size=(256, 256),
+    min_scale=0.8,
+    log_aspect_ratio=(-0.2, 0.2),
+    pred_ratio=[0.1],
+    pred_ratio_var=[0.05],
+    psz=16
+)
 #test_dataset = PisTestDeepFashion(root_dir="/home/user/Desktop/CFLD/CFLD/fashion", gt_img_size=(256, 256), pose_img_size=(256, 256), cond_img_size=(128, 88), test_img_size=(256, 256))
 
-#save_dataset_samples(train_dataset, num_samples=2, save_dir='/home/user/Desktop/CFLD/CFLD/datasets/samples', prefix='train')
-#save_dataset_samples(test_dataset, num_samples=2, save_dir='/home/user/Desktop/CFLD/CFLD/datasets/samples', prefix='test')
+#save_dataset_samples(train_dataset, num_samples=1, save_dir='/home/user/Desktop/CFLD/CFLD/datasets/samples', prefix='train')
+#save_dataset_samples(test_dataset, num_samples=5, save_dir='/home/user/Desktop/CFLD/CFLD/datasets/samples', prefix='test')

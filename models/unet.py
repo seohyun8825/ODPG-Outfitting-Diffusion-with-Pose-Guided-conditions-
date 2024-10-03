@@ -12,6 +12,27 @@ from diffusers.models.transformer_2d import *
 from diffusers.models.unet_2d_blocks import *
 from diffusers.models.unet_2d_condition import *
 
+import torch
+import torch.fft as fft
+
+def Fourier_filter(x, threshold, scale):
+    # FFT
+    x_freq = fft.fftn(x, dim=(-2, -1))
+    x_freq = fft.fftshift(x_freq, dim=(-2, -1))
+    
+    B, C, H, W = x_freq.shape
+    mask = torch.ones((B, C, H, W)).to(x.device)
+    
+    crow, ccol = H // 2, W // 2
+    mask[..., crow - threshold:crow + threshold, ccol - threshold:ccol + threshold] = scale
+    x_freq = x_freq * mask
+    
+    # IFFT
+    x_freq = fft.ifftshift(x_freq, dim=(-2, -1))
+    x_filtered = fft.ifftn(x_freq, dim=(-2, -1)).real
+    
+    return x_filtered
+
 
 class ResidualXFormersAttnProcessor(XFormersAttnProcessor):
     def __call__(
@@ -77,6 +98,11 @@ class ResidualXFormersAttnProcessor(XFormersAttnProcessor):
 
         key = attn.to_k(encoder_hidden_states)
         value = attn.to_v(encoder_hidden_states)
+       
+        #print(f"query shape: {query.shape}")
+        #print(f"key shape:{key.shape}")
+        #print("value size:")
+        #print(value.size())
 
         # newly added
         if is_self_attn and additional_residuals and f"block_{block_idx}_self_attn_k" in additional_residuals:
@@ -767,8 +793,16 @@ class ResidualUpBlock2D(UpBlock2D):
         resnet_pre_norm: bool = True,
         output_scale_factor=1.0,
         add_upsample=True,
+        b1: float = 1.0,
+        b2: float = 1.0,
+        s1: float = 0.5,
+        s2: float = 0.5,
     ):
         super(UpBlock2D, self).__init__()
+        self.b1 = b1
+        self.b2 = b2
+        self.s1 = s1
+        self.s2 = s2
         resnets = []
 
         for i in range(num_layers):
@@ -805,6 +839,29 @@ class ResidualUpBlock2D(UpBlock2D):
             # pop res hidden states
             res_hidden_states = res_hidden_states_tuple[-1]
             res_hidden_states_tuple = res_hidden_states_tuple[:-1]
+            # --------------- FreeU code -----------------------
+            if hidden_states.shape[1] == 1280:
+                hidden_mean = hidden_states.mean(1, keepdim=True)
+                B = hidden_mean.shape[0]
+                hidden_max = hidden_mean.view(B, -1).max(dim=-1, keepdim=True)[0]
+                hidden_min = hidden_mean.view(B, -1).min(dim=-1, keepdim=True)[0]
+                hidden_mean = (hidden_mean - hidden_min.view(B, 1, 1, 1)) / (hidden_max - hidden_min).view(B, 1, 1, 1)
+                
+                # Scale part of the channels
+                hidden_states[:, :640] = hidden_states[:, :640] * ((self.b1 - 1) * hidden_mean + 1)
+                res_hidden_states = Fourier_filter(res_hidden_states, threshold=1, scale=self.s1)
+            elif hidden_states.shape[1] == 640:
+                hidden_mean = hidden_states.mean(1, keepdim=True)
+                B = hidden_mean.shape[0]
+                hidden_max = hidden_mean.view(B, -1).max(dim=-1, keepdim=True)[0]
+                hidden_min = hidden_mean.view(B, -1).min(dim=-1, keepdim=True)[0]
+                hidden_mean = (hidden_mean - hidden_min.view(B, 1, 1, 1)) / (hidden_max - hidden_min).view(B, 1, 1, 1)
+                
+                # Scale part of the channels
+                hidden_states[:, :320] = hidden_states[:, :320] * ((self.b2 - 1) * hidden_mean + 1)
+                res_hidden_states = Fourier_filter(res_hidden_states, threshold=1, scale=self.s2)
+            # ---------------------------------------------------------
+            
             hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)
 
             if self.training and self.gradient_checkpointing:
@@ -856,8 +913,16 @@ class ResidualCrossAttnUpBlock2D(CrossAttnUpBlock2D):
         use_linear_projection=False,
         only_cross_attention=False,
         upcast_attention=False,
+        b1: float = 1.0,
+        b2: float = 1.0,
+        s1: float = 0.5,
+        s2: float = 0.5,
     ):
         super(CrossAttnUpBlock2D, self).__init__()
+        self.b1 = b1
+        self.b2 = b2
+        self.s1 = s1
+        self.s2 = s2
         resnets = []
         attentions = []
 
@@ -934,6 +999,30 @@ class ResidualCrossAttnUpBlock2D(CrossAttnUpBlock2D):
             # pop res hidden states
             res_hidden_states = res_hidden_states_tuple[-1]
             res_hidden_states_tuple = res_hidden_states_tuple[:-1]
+            
+            # --------------- FreeU code -----------------------
+            # Apply FreeU modifications based on channel dimensions
+            if hidden_states.shape[1] == 1280:
+                hidden_mean = hidden_states.mean(1, keepdim=True)
+                B = hidden_mean.shape[0]
+                hidden_max = hidden_mean.view(B, -1).max(dim=-1, keepdim=True)[0]
+                hidden_min = hidden_mean.view(B, -1).min(dim=-1, keepdim=True)[0]
+                hidden_mean = (hidden_mean - hidden_min.view(B, 1, 1, 1)) / (hidden_max - hidden_min).view(B, 1, 1, 1)
+                
+                # Scale part of the channels
+                hidden_states[:, :640] = hidden_states[:, :640] * ((self.b1 - 1) * hidden_mean + 1)
+                res_hidden_states = Fourier_filter(res_hidden_states, threshold=1, scale=self.s1)
+            elif hidden_states.shape[1] == 640:
+                hidden_mean = hidden_states.mean(1, keepdim=True)
+                B = hidden_mean.shape[0]
+                hidden_max = hidden_mean.view(B, -1).max(dim=-1, keepdim=True)[0]
+                hidden_min = hidden_mean.view(B, -1).min(dim=-1, keepdim=True)[0]
+                hidden_mean = (hidden_mean - hidden_min.view(B, 1, 1, 1)) / (hidden_max - hidden_min).view(B, 1, 1, 1)
+                
+                # Scale part of the channels
+                hidden_states[:, :320] = hidden_states[:, :320] * ((self.b2 - 1) * hidden_mean + 1)
+                res_hidden_states = Fourier_filter(res_hidden_states, threshold=1, scale=self.s2)
+            # ---------------------------------------------------------
             hidden_states = torch.cat([hidden_states, res_hidden_states], dim=1)
 
             if self.training and self.gradient_checkpointing:
@@ -1015,6 +1104,10 @@ def get_residual_up_block(
     cross_attention_norm=None,
     attention_head_dim=None,
     upsample_type=None,
+    b1: float = 1.0,
+    b2: float = 1.0,
+    s1: float = 0.5,
+    s2: float = 0.5,
 ):
     # If attn head dim is not defined, we default it to the number of heads
     if attention_head_dim is None:
@@ -1036,6 +1129,10 @@ def get_residual_up_block(
             resnet_act_fn=resnet_act_fn,
             resnet_groups=resnet_groups,
             resnet_time_scale_shift=resnet_time_scale_shift,
+            b1=b1,
+            b2=b2,
+            s1=s1,
+            s2=s2,
         )
     elif up_block_type == "ResnetUpsampleBlock2D":
         return ResnetUpsampleBlock2D(
@@ -1073,6 +1170,10 @@ def get_residual_up_block(
             only_cross_attention=only_cross_attention,
             upcast_attention=upcast_attention,
             resnet_time_scale_shift=resnet_time_scale_shift,
+            b1=b1,
+            b2=b2,
+            s1=s1,
+            s2=s2,
         )
     elif up_block_type == "SimpleCrossAttnUpBlock2D":
         if cross_attention_dim is None:
@@ -1194,6 +1295,10 @@ class ResidualUNet2DConditionModel(UNet2DConditionModel):
     @register_to_config
     def __init__(
         self,
+        b1: float = 1.0,
+        b2: float = 1.0,
+        s1: float = 0.5,
+        s2: float = 0.5,
         sample_size: Optional[int] = None,
         in_channels: int = 4,
         out_channels: int = 4,
@@ -1579,6 +1684,10 @@ class ResidualUNet2DConditionModel(UNet2DConditionModel):
                 resnet_time_scale_shift=resnet_time_scale_shift,
                 resnet_skip_time_act=resnet_skip_time_act,
                 resnet_out_scale_factor=resnet_out_scale_factor,
+                b1=b1,
+                b2=b2,
+                s1=s1,
+                s2=s2,
                 cross_attention_norm=cross_attention_norm,
                 attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
             )
@@ -1913,6 +2022,10 @@ class UNet(nn.Module):
         self.model.enable_xformers_memory_efficient_attention()
 
         self.model.enable_gradient_checkpointing()
+        self.model.b1 = 1.0 
+        self.model.b2 = 1.0  
+        self.model.s1 = 0.5  
+        self.model.s2 = 0.5
         for i, up_block in enumerate(self.model.up_blocks):
             if isinstance(up_block, ResidualCrossAttnUpBlock2D):
                 for j, attn in enumerate(up_block.attentions):
