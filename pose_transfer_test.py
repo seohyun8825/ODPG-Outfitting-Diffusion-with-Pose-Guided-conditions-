@@ -70,7 +70,6 @@ def eval(cfg, model, test_loader, fid_real_loader, weight_dtype, save_dir,
     ssim_gathered = []
     ssim_256_gathered = []
     total_samples = 0
-    #CrossAttnFirstTransformerBlock.sample_counter = 0
     with torch.no_grad():
         end_time = time.time()
         batch_time = AverageMeter()

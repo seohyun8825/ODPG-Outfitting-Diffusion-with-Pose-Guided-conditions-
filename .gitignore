@@ -170,3 +170,4 @@ cython_debug/
 
 *.onnx
 fashion.zip
+attention_maps_total_query
