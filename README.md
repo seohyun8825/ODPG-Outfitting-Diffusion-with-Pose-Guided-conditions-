@@ -11,8 +11,9 @@ Our paper is currently under review
   
 </p>
 
+
 <p align="center">
-  <img src="https://github.com/seohyun8825/ODPG_1/assets/153355118/da31df0c-4179-4a6e-a280-2500d0d003c9" width=95%>
+  <img src="https://github.com/user-attachments/assets/fe8824bf-ad7b-4f90-a81e-d18b6563fdb1" width=95%>
 </p>
 
 ## 📜 Model Pipeline
