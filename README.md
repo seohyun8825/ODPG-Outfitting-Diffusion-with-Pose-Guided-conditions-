@@ -1,10 +1,7 @@
-# ODPG-Outfitting-Diffusion-with-Pose-Guided-conditions🚀 & Accepted at CKAIA 2024📈
+# ODPG-Outfitting-Diffusion-with-Pose-Guided-conditions
 
 <div align="center">
-
-[![CKAIA 2024](https://img.shields.io/badge/CKAIA%202024-Accepted-brightgreen)](YourConferenceLinkHere)&nbsp;
-[![Poster](https://img.shields.io/badge/Demo-Try%20it%20out-blue)](YourDemoLinkHere)&nbsp;
-[![Poster](https://img.shields.io/badge/CKAIA%202024-Poster-red)](YourDemoLinkHere)&nbsp;
+Our paper is currently under review
 [![GitHub stars](https://img.shields.io/github/stars/seohyun8825/ODPG_1?style=social)](https://github.com/seohyun8825/ODPG_1)
 
 </div>
@@ -21,12 +18,12 @@
 ## 📜 Model Pipeline
 Below is the pipeline of our model, detailing each step from input to output:
 
-![pipeline_ODPG](https://github.com/seohyun8825/ODPG_1/assets/153355118/a4e2c20e-5a0c-4ab8-b9ea-c5de18c64d9e)
+![pipeline_ODPG](https://github.com/user-attachments/assets/5ce51984-a207-4690-bfb4-9edf72162e1e)
 
 ## 📊 Qualitative Results
 Here are the results after 10 hours of training (20 epochs) using a single A100 GPU:
 
-![qualitative result](https://github.com/seohyun8825/ODPG_1/assets/153355118/da31df0c-4179-4a6e-a280-2500d0d003c9)
+![qualitative result](https://github.com/user-attachments/assets/360c2ae1-0769-4bae-99c3-0816f7141720)
 
 ## 🗂️ Dataset Preparation
 To prepare the "In-shop Clothes Retrieval Benchmark" dataset, follow these steps:
@@ -38,6 +35,8 @@ To prepare the "In-shop Clothes Retrieval Benchmark" dataset, follow these steps
    - Approximately 200,000 cross-pose/scale pairs.
    - Each image is annotated with bounding box, clothing type, and pose type.
 3. Extract the downloaded files into the `Fashion` folder within your project directory to maintain the required structure.
+
+Guideline & CSV file for Fashion Tryon Dataset will be provided later
 
 ## 📋 TODO
 
