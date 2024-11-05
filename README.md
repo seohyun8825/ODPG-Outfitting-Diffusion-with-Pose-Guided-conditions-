@@ -2,8 +2,6 @@
 
 <div align="center">
 Our paper is currently under review
-[![GitHub stars](https://img.shields.io/github/stars/seohyun8825/ODPG_1?style=social)](https://github.com/seohyun8825/ODPG_1)
-
 </div>
 
 <p align="center">
