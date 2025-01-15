@@ -1,7 +1,8 @@
-# ODPG-Outfitting-Diffusion-with-Pose-Guided-conditions
-
 <div align="center">
-Our paper is currently under review
+  <h1><strong>ODPG-Outfitting-Diffusion-with-Pose-Guided-conditions</strong></h1>
+  <p>Seohyun Lee, Jintae Park, and Sanghyeok Park</p>
+  <p>Our paper is accepted in VISAPP 2025, as an oral presentation paper</p>
+  <p><a href="https://arxiv.org/pdf/2501.06769">Preprint</a></p>
 </div>
 
 <p align="center">
